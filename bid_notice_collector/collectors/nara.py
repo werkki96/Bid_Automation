@@ -1,0 +1,72 @@
+"""나라장터(G2B) 학술·연구용역 입찰공고 수집."""
+
+import json
+from config import COLUMNS
+from http_client import fetch_bytes, collect_pages
+
+API_URL = (
+    "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/"
+    "getBidPblancListInfoServcPPSSrch"
+)
+
+
+def convert(item, display_name):
+    no = str(item.get("bidNtceNo") or "").strip()
+    order = str(item.get("bidNtceOrd") or "").strip()
+    return {
+        "공고위치": display_name,
+        "공고번호": f"{no}-{order}" if no and order else no,
+        "공고구분": item.get("ntceKindNm") or "",
+        "공고일자": item.get("bidNtceDt") or "",
+        "공고명": item.get("bidNtceNm") or "",
+        "공고기관(발주기관)": item.get("ntceInsttNm") or "",
+        "수요기관": item.get("dminsttNm") or "",
+        "추정가격(원)": item.get("presmptPrce") or "",
+        "입찰참가등록 마감일시": item.get("bidQlfctRgstDt") or "",
+        "상세보기 주소": item.get("bidNtceDtlUrl") or "",
+    }
+
+
+def collect(api_key, day, settings):
+    page_size = settings["page_size"]
+    source_settings = settings["nara"]
+    daystr = day.strftime("%Y%m%d")
+
+    def fetch(page):
+        params = {
+            "ServiceKey": api_key,
+            "type": "json",
+            "numOfRows": page_size,
+            "pageNo": page,
+            "inqryDiv": "1",  # 공고게시일시
+            "inqryBgnDt": daystr + "0000",
+            "inqryEndDt": daystr + "2359",
+            "indstrytyCd": source_settings.get("industry_code", "1169"),
+            "bidClseExcpYn": source_settings.get("exclude_closed", "Y"),
+        }
+        raw = fetch_bytes(API_URL, params)
+        try:
+            data = json.loads(raw.decode("utf-8-sig"))
+            response = data["response"]
+            header = response["header"]
+            if str(header.get("resultCode", "")) not in ("00", "0"):
+                raise RuntimeError(f"나라장터 API 오류: {header.get('resultCode')} / {header.get('resultMsg')}")
+            body = response["body"]
+            count = int(body["totalCount"])
+            container = body.get("items") or {}
+            if isinstance(container, dict):
+                records = container.get("item") or []
+            elif isinstance(container, list):
+                records = container
+            else:
+                records = []
+            if isinstance(records, dict):
+                records = [records]
+            if not isinstance(records, list):
+                raise ValueError("item의 자료형이 예상과 다릅니다.")
+            return count, records
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError("나라장터 API 응답 형식 확인 필요 (JSON 구조/인증키 확인)") from exc
+
+    raw_records = collect_pages(fetch, page_size, "나라장터")
+    return [convert(row, source_settings["display_name"]) for row in raw_records]

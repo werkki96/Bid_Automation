@@ -1,0 +1,19 @@
+{
+  "date_range": {
+    "start_date": null,
+    "end_date": null
+  },
+  "page_size": 100,
+  "output_directory": "output",
+  "include_keywords": [],
+  "exclude_keywords": [],
+  "keyword_search_columns": ["공고명"],
+  "nara": {
+    "display_name": "나라장터",
+    "industry_code": "1169",
+    "exclude_closed": "Y"
+  },
+  "d2b": {
+    "display_name": "조달청"
+  }
+}
