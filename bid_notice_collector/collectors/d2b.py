@@ -84,4 +84,8 @@ def collect(api_key, start_date, end_date, settings, on_page=None):
             on_page([convert(item, display_name) for item in items], page, pages, total)
 
     raw_records = collect_pages(fetch, page_size, "D2B", on_page=notify_page)
+    raw_records = [
+        row for row in raw_records
+        if (row.get("busiDivs") or "").strip() == "용역"
+    ]
     return [convert(row, settings["d2b"]["display_name"]) for row in raw_records]
