@@ -40,6 +40,7 @@ def convert(item, display_name):
     return {
         "공고위치": display_name,
         "공고번호": f"{number}-{order}" if number and order else number,
+        "입찰구분": item.get("cntrctMth") or "",
         "공고구분": item.get("pblancSe") or "",
         "공고일자": item.get("pblancDate") or "",
         "공고명": item.get("bidNm") or "",
@@ -51,7 +52,7 @@ def convert(item, display_name):
     }
 
 
-def collect(api_key, start_date, end_date, settings):
+def collect(api_key, start_date, end_date, settings, on_page=None):
     page_size = settings["page_size"]
     start_token = start_date.strftime("%Y%m%d")
     end_token = end_date.strftime("%Y%m%d")
@@ -77,5 +78,10 @@ def collect(api_key, start_date, end_date, settings):
         except ET.ParseError as exc:
             raise RuntimeError("D2B API가 올바른 XML을 반환하지 않았습니다.") from exc
 
-    raw_records = collect_pages(fetch, page_size, "D2B")
+    display_name = settings["d2b"]["display_name"]
+    def notify_page(items, page, pages, total):
+        if on_page is not None:
+            on_page([convert(item, display_name) for item in items], page, pages, total)
+
+    raw_records = collect_pages(fetch, page_size, "D2B", on_page=notify_page)
     return [convert(row, settings["d2b"]["display_name"]) for row in raw_records]

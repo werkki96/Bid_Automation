@@ -3,14 +3,15 @@
 from datetime import datetime, timedelta, timezone
 import json
 import os
+import sys
 from pathlib import Path
 from urllib.parse import unquote
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 KST = timezone(timedelta(hours=9))
 
 COLUMNS = [
-    "공고위치", "공고번호", "공고구분", "공고일자", "공고명",
+    "공고위치", "공고번호", "입찰구분", "공고구분", "공고일자", "공고명",
     "공고기관(발주기관)", "수요기관", "추정가격(원)",
     "입찰참가등록 마감일시", "상세보기 주소",
 ]
