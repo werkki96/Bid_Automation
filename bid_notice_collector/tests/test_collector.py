@@ -152,7 +152,15 @@ class CollectorTests(unittest.TestCase):
         keywords = load_settings()["highlight_keywords"]
         titles = [f"{term.lower()} 구축 사업" for term in keywords]
         titles += ["일반 용역", "", "=AI()"]
-        rows = [{"공고명": title, "공고기관(발주기관)": "국방"} for title in titles]
+        rows = [{"공고명": "일반 용역", "공고기관(발주기관)": "국방"}]
+        rows += [{"공고명": title, "공고기관(발주기관)": "국방"} for title in titles]
+        expected_titles = [
+            row["공고명"]
+            for row in sorted(
+                rows,
+                key=lambda row: not bool(highlight_reasons(row["공고명"], keywords)),
+            )
+        ]
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "result.xlsx"
             save_excel(path, rows, keywords)
@@ -160,16 +168,28 @@ class CollectorTests(unittest.TestCase):
             sheet = workbook.active
             self.assertEqual([cell.value for cell in sheet[1]], EXCEL_COLUMNS)
             self.assertEqual(sheet.max_row, len(rows) + 1)
-            for index, title in enumerate(titles, 2):
+            self.assertEqual(sheet["E2"].value, expected_titles[0])
+            self.assertEqual(sheet["E2"].fill.fgColor.rgb, "FFFFFF00")
+            for cell in sheet[1]:
+                self.assertEqual(cell.fill.fgColor.rgb, "FFD9D9D9")
+                self.assertEqual(cell.border.left.style, "thin")
+                self.assertEqual(cell.border.left.color.rgb, "FF000000")
+            for row in sheet.iter_rows():
+                for cell in row:
+                    self.assertEqual(cell.border.right.style, "thin")
+                    self.assertEqual(cell.border.top.style, "thin")
+                    self.assertEqual(cell.border.bottom.style, "thin")
+            for index, title in enumerate(expected_titles, 2):
                 cell = sheet.cell(index, 5)
                 self.assertEqual(cell.value or "", title)
-                if title and title != "일반 용역":
+                if highlight_reasons(title, keywords):
                     self.assertEqual(cell.fill.fgColor.rgb, "FFFFFF00")
                     self.assertEqual(cell.fill.patternType, "solid")
                 else:
                     self.assertIsNone(cell.fill.patternType)
                 self.assertIsNone(sheet.cell(index, 6).fill.patternType)
-            self.assertEqual(sheet.cell(len(rows) + 1, 5).data_type, "s")
+            formula_text_cell = next(cell for cell in sheet["E"] if cell.value == "=AI()")
+            self.assertEqual(formula_text_cell.data_type, "s")
             workbook.close()
             save_excel(path, [{"공고명": "AI"}], [" "])
             workbook = load_workbook(path)
@@ -240,6 +260,9 @@ class CollectorTests(unittest.TestCase):
                 workbook = load_workbook(path)
                 self.assertEqual(workbook.active.max_row, 2)
                 self.assertEqual(workbook.active["E2"].fill.fgColor.rgb, "FFFFFF00")
+                self.assertEqual(workbook.active["A1"].fill.fgColor.rgb, "FFD9D9D9")
+                self.assertEqual(workbook.active["A2"].border.left.style, "thin")
+                self.assertEqual(workbook.active["A2"].border.left.color.rgb, "FF000000")
                 self.assertIn("과업:", workbook.active["K2"].value)
                 workbook.close()
 

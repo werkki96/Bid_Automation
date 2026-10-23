@@ -6,29 +6,44 @@ from pathlib import Path
 import tempfile
 from config import COLUMNS
 from openpyxl import Workbook
-from openpyxl.styles import PatternFill
+from openpyxl.styles import Border, PatternFill, Side
 from highlighter import highlight_reasons
 
 EXCEL_COLUMNS = COLUMNS + ["강조 근거"]
 
 
 def save_excel(path, records, highlight_keywords=None, highlight_rules=None):
-    """Save all records, highlighting matching title cells (case-insensitive)."""
+    """Save records with highlighted notices first and matching title cells highlighted."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "입찰공고"
     sheet.append(EXCEL_COLUMNS)
+    header_fill = PatternFill(fill_type="solid", fgColor="FFD9D9D9")
     yellow = PatternFill(fill_type="solid", fgColor="FFFFFF00")
+    cell_border = Border(
+        left=Side(style="thin", color="FF000000"),
+        right=Side(style="thin", color="FF000000"),
+        top=Side(style="thin", color="FF000000"),
+        bottom=Side(style="thin", color="FF000000"),
+    )
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.border = cell_border
+    highlighted_records = []
     for record in records:
         reasons = highlight_reasons(record.get("공고명"), highlight_keywords, highlight_rules)
+        highlighted_records.append((bool(reasons), record, reasons))
+    highlighted_records.sort(key=lambda item: not item[0])
+    for _, record, reasons in highlighted_records:
         row = sheet.max_row + 1
         for column, name in enumerate(EXCEL_COLUMNS, 1):
             value = "; ".join(reasons) if name == "강조 근거" else record.get(name)
             cell = sheet.cell(row, column, "" if value is None else str(value))
             # API text must remain literal text, including values starting with '='.
             cell.data_type = "s"
+            cell.border = cell_border
             if name == "공고명" and reasons:
                 cell.fill = yellow
     sheet.freeze_panes = "A2"
