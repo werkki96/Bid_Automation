@@ -1,3 +1,7 @@
+# 파일 역할: 포함·제외 키워드 필터링, 강조 공고 우선 정렬, Excel 서식 저장 및 CSV 저장을 담당합니다.
+# 마지막 업데이트: 2026-10-23
+# 작업자: SMI 장지수
+
 """Keyword filtering, CSV output, and highlighted Excel output."""
 
 import csv
@@ -35,6 +39,7 @@ def save_excel(path, records, highlight_keywords=None, highlight_rules=None):
     for record in records:
         reasons = highlight_reasons(record.get("공고명"), highlight_keywords, highlight_rules)
         highlighted_records.append((bool(reasons), record, reasons))
+    # 안정 정렬: 강조 공고를 위로 모으되 각 그룹 안의 API 수집 순서는 유지합니다.
     highlighted_records.sort(key=lambda item: not item[0])
     for _, record, reasons in highlighted_records:
         row = sheet.max_row + 1
@@ -50,6 +55,7 @@ def save_excel(path, records, highlight_keywords=None, highlight_rules=None):
     sheet.auto_filter.ref = sheet.dimensions
     sheet.column_dimensions["E"].width = 70
     sheet.column_dimensions["K"].width = 80
+    # 완성된 임시 파일만 교체하여 저장 실패 시 기존 결과 파일을 보호합니다.
     fd, temporary = tempfile.mkstemp(prefix=".tmp_", suffix=".xlsx", dir=target.parent)
     os.close(fd)
     try:
@@ -67,6 +73,7 @@ def filter_keywords(records, keywords, search_columns, include_keywords=None):
     An empty include list allows all records through the inclusion phase.
     Matching ignores case and surrounding whitespace.
     """
+    # 포함은 OR, 제외도 OR이며 둘 다 해당하면 제외합니다. 강조 규칙과 달리 내부 공백은 유지합니다.
     includes = [term.strip().casefold() for term in (include_keywords or []) if term.strip()]
     terms = [term.strip().casefold() for term in keywords if term.strip()]
     kept = []

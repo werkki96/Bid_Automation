@@ -1,14 +1,21 @@
+# 파일 역할: 공통 출력 컬럼, 인증키 로딩, 설정 검증과 한국시간(KST) 기준 조회기간 계산을 담당합니다.
+# 마지막 업데이트: 2026-10-23
+# 작업자: SMI 장지수
+
 """Configuration and date handling. Standard library only."""
 
 from datetime import datetime, timedelta, timezone
 import json
 import os
+import sys
 from pathlib import Path
 from urllib.parse import unquote
 
-BASE_DIR = Path(__file__).resolve().parent
+# 일반 실행은 소스 파일 옆, PyInstaller EXE는 실행 파일 옆의 설정·인증키를 사용합니다.
+BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 KST = timezone(timedelta(hours=9))
 
+# 두 API가 공유하는 원본 출력 순서입니다. Excel에서는 exporter가 강조 근거 열을 덧붙입니다.
 COLUMNS = [
     "공고위치", "공고번호", "공고구분", "공고일자", "공고명",
     "공고기관(발주기관)", "수요기관", "추정가격(원)",
@@ -44,6 +51,7 @@ def api_keys(env=None):
     env = read_env() if env is None else env
 
     def choose(name):
+        # 우선순위: 서비스별 환경변수 → 서비스별 .env → 공통 환경변수 → 공통 .env.
         value = os.environ.get(name) or env.get(name) or os.environ.get("API_KEY") or env.get("API_KEY", "")
         return unquote(value.strip())
 
@@ -107,6 +115,7 @@ def resolve_date_range(settings, explicit_start=None, explicit_end=None, now=Non
 
     Settings may specify both dates (or neither); a CLI override must give both.
     """
+    # 조회기간 우선순위: CLI 날짜 → settings 날짜 → KST 어제~오늘(양끝 포함).
     if explicit_start is not None or explicit_end is not None:
         if not explicit_start or not explicit_end:
             raise ValueError("직접 날짜를 지정할 때는 시작일과 종료일을 모두 입력하세요.")

@@ -1,3 +1,7 @@
+# 파일 역할: D2B 국내 경쟁입찰 공고를 날짜 범위로 조회하고 XML 응답을 공통 컬럼으로 변환합니다.
+# 마지막 업데이트: 2026-10-23
+# 작업자: SMI 장지수
+
 """방위사업청 D2B 국내 경쟁입찰공고 수집."""
 
 import xml.etree.ElementTree as ET
@@ -12,6 +16,7 @@ API_URL = (
 
 
 def local_name(tag):
+    # XML 네임스페이스가 붙은 {주소}태그에서도 실제 태그명만 비교합니다.
     return tag.rsplit("}", 1)[-1]
 
 
@@ -51,11 +56,12 @@ def convert(item, display_name):
     }
 
 
-def collect(api_key, start_date, end_date, settings):
+def collect(api_key, start_date, end_date, settings, on_page=None):
     page_size = settings["page_size"]
     start_token = start_date.strftime("%Y%m%d")
     end_token = end_date.strftime("%Y%m%d")
 
+    # 이 API에는 나라장터의 업종 1169·입찰마감제외 조건을 전달하지 않습니다.
     def fetch(page):
         params = {
             "serviceKey": api_key,
@@ -77,5 +83,10 @@ def collect(api_key, start_date, end_date, settings):
         except ET.ParseError as exc:
             raise RuntimeError("D2B API가 올바른 XML을 반환하지 않았습니다.") from exc
 
-    raw_records = collect_pages(fetch, page_size, "D2B")
+    # UI에는 원본 API 필드 대신 화면·출력에서 사용하는 공통 컬럼으로 전달합니다.
+    def notify_page(items, page, pages, total):
+        if on_page is not None:
+            on_page([convert(item, settings["d2b"]["display_name"]) for item in items], page, pages, total)
+
+    raw_records = collect_pages(fetch, page_size, "D2B", on_page=notify_page)
     return [convert(row, settings["d2b"]["display_name"]) for row in raw_records]

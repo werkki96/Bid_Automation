@@ -1,3 +1,7 @@
+# 파일 역할: 프로그램 진입점. 날짜·인증키를 읽고 두 API 수집, 키워드 필터링, Excel 저장을 순서대로 실행합니다.
+# 마지막 업데이트: 2026-10-23
+# 작업자: SMI 장지수
+
 """Entry point: python main.py"""
 
 import argparse
@@ -38,6 +42,7 @@ def run(start_date=None, end_date=None):
             continue
         try:
             records = collector(keys[key_name], start, end, settings)
+            # 제외 조건은 강조보다 먼저 적용됩니다. 제외된 공고는 강조 대상이어도 파일에 저장되지 않습니다.
             kept, removed = filter_keywords(
                 records,
                 settings.get("exclude_keywords", []),
@@ -53,6 +58,7 @@ def run(start_date=None, end_date=None):
             # One source failing does not stop the other.
             print(f"  실패: {type(exc).__name__}: {exc}")
             errors.append(title)
+    # 종료코드: 정상 0, 수집 실패 1. CLI 설정 오류는 아래 진입점에서 2로 처리합니다.
     if errors:
         print(f"\n실패한 API: {', '.join(errors)}. 정상 API의 저장 파일은 유지됩니다.")
         return 1

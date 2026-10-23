@@ -1,8 +1,14 @@
+# 파일 역할: 인증키 파일, Python 캐시와 수집 결과가 Git에 포함되지 않도록 지정합니다.
+# 마지막 업데이트: 2026-10-23
+# 작업자: SMI 장지수
+
 .env
 .env.*
+# 값이 없는 인증키 템플릿은 공유합니다.
 !.env.example
 __pycache__/
 *.py[cod]
 .pytest_cache/
 output/*
+# 빈 결과 폴더를 유지하는 자리표시자만 추적합니다.
 !output/.gitkeep

@@ -1,3 +1,7 @@
+# 파일 역할: 실제 API 호출 없이 날짜, 설정, 응답 매핑, 필터, 강조·서식과 파일 저장 흐름을 검증합니다.
+# 마지막 업데이트: 2026-10-23
+# 작업자: SMI 장지수
+
 import csv
 from datetime import datetime, date, timedelta, timezone
 import json
@@ -13,6 +17,7 @@ from exporter import filter_keywords, save_csv, save_excel, EXCEL_COLUMNS
 from highlighter import highlight_reasons
 from main import run
 
+# 개별 테스트의 기본 설정입니다. 운영 settings.json의 제외 목록이 테스트에 섞이지 않도록 분리합니다.
 SETTINGS = {
     "date_range": {"start_date": None, "end_date": None},
     "page_size": 1,
@@ -243,6 +248,7 @@ class CollectorTests(unittest.TestCase):
             fake_nara = [{"공고명": "학술 연구", "공고위치": "나라장터"},
                          {"공고명": "제외할 공고", "공고위치": "나라장터"}]
             fake_d2b = [{"공고명": "과제 공고", "공고위치": "조달청"}]
+            # API와 출력 경로를 대체하여 실서비스 호출·실제 결과 덮어쓰기 없이 실행 흐름을 검증합니다.
             with patch("main.BASE_DIR", tmp_dir), \
                  patch("main.load_settings", return_value=settings), \
                  patch("main.api_keys", return_value={"nara": "test1", "d2b": "test2"}), \
