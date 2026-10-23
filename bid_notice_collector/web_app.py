@@ -69,14 +69,27 @@ def results():
             job['running'] = False
             job['logs'].append('수집 종료' + (' (일부 실패)' if event['failures'] else ''))
     st.subheader(f"검색 결과: {len(job['rows'])}건" + (' · 수집 중' if job['running'] else ''))
-    # 전체 수집 결과에서 강조 공고를 먼저 표시하며 같은 그룹의 수집 순서를 유지합니다.
-    rows = sorted(job['rows'], key=lambda row: not bool(row.get('강조 근거')))
-    frame = pd.DataFrame(rows, columns=EXCEL_COLUMNS)
+
     def style_row(row):
         return ['background-color: #FFFF00' if col == '공고명' and row['강조 근거'] else ''
                 for col in EXCEL_COLUMNS]
-    st.dataframe(frame.style.apply(style_row, axis=1), column_order=EXCEL_COLUMNS,
-                 use_container_width=True, hide_index=True)
+
+    source_rows = {
+        source: sorted(
+            (row for row in job['rows'] if row.get('공고위치') == source),
+            key=lambda row: not bool(row.get('강조 근거')),
+        )
+        for source in ('나라장터', '조달청')
+    }
+    for source, rows in source_rows.items():
+        st.markdown(f"#### {source} ({len(rows)}건)")
+        if rows:
+            frame = pd.DataFrame(rows, columns=EXCEL_COLUMNS)
+            st.dataframe(frame.style.apply(style_row, axis=1), column_order=EXCEL_COLUMNS,
+                         use_container_width=True, hide_index=True)
+        else:
+            st.caption('검색 결과가 없습니다.')
+
     for path in job['files']:
         from pathlib import Path
         file = Path(path)
