@@ -1,10 +1,49 @@
-"""Keyword filtering and Excel-compatible UTF-8 BOM CSV output."""
+"""Keyword filtering, CSV output, and highlighted Excel output."""
 
 import csv
 import os
 from pathlib import Path
 import tempfile
 from config import COLUMNS
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill
+from highlighter import highlight_reasons
+
+EXCEL_COLUMNS = COLUMNS + ["강조 근거"]
+
+
+def save_excel(path, records, highlight_keywords=None, highlight_rules=None):
+    """Save all records, highlighting matching title cells (case-insensitive)."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "입찰공고"
+    sheet.append(EXCEL_COLUMNS)
+    yellow = PatternFill(fill_type="solid", fgColor="FFFFFF00")
+    for record in records:
+        reasons = highlight_reasons(record.get("공고명"), highlight_keywords, highlight_rules)
+        row = sheet.max_row + 1
+        for column, name in enumerate(EXCEL_COLUMNS, 1):
+            value = "; ".join(reasons) if name == "강조 근거" else record.get(name)
+            cell = sheet.cell(row, column, "" if value is None else str(value))
+            # API text must remain literal text, including values starting with '='.
+            cell.data_type = "s"
+            if name == "공고명" and reasons:
+                cell.fill = yellow
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+    sheet.column_dimensions["E"].width = 70
+    sheet.column_dimensions["K"].width = 80
+    fd, temporary = tempfile.mkstemp(prefix=".tmp_", suffix=".xlsx", dir=target.parent)
+    os.close(fd)
+    try:
+        workbook.save(temporary)
+        os.replace(temporary, target)
+    finally:
+        workbook.close()
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def filter_keywords(records, keywords, search_columns, include_keywords=None):

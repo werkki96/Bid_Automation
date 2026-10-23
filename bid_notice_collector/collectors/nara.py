@@ -27,10 +27,11 @@ def convert(item, display_name):
     }
 
 
-def collect(api_key, day, settings):
+def collect(api_key, start_date, end_date, settings):
     page_size = settings["page_size"]
     source_settings = settings["nara"]
-    daystr = day.strftime("%Y%m%d")
+    start_token = start_date.strftime("%Y%m%d")
+    end_token = end_date.strftime("%Y%m%d")
 
     def fetch(page):
         params = {
@@ -39,8 +40,8 @@ def collect(api_key, day, settings):
             "numOfRows": page_size,
             "pageNo": page,
             "inqryDiv": "1",  # 공고게시일시
-            "inqryBgnDt": daystr + "0000",
-            "inqryEndDt": daystr + "2359",
+            "inqryBgnDt": start_token + "0000",
+            "inqryEndDt": end_token + "2359",
             "indstrytyCd": source_settings.get("industry_code", "1169"),
             "bidClseExcpYn": source_settings.get("exclude_closed", "Y"),
         }

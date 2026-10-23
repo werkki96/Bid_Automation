@@ -7,7 +7,7 @@ import sys
 
 from config import BASE_DIR, api_keys, load_settings, resolve_date_range
 from collectors import nara, d2b
-from exporter import filter_keywords, save_csv
+from exporter import filter_keywords, save_excel
 
 
 def run(start_date=None, end_date=None):
@@ -26,8 +26,8 @@ def run(start_date=None, end_date=None):
     print("제외 키워드 수:", len(settings.get("exclude_keywords", [])))
 
     jobs = [
-        ("나라장터", "nara", nara.collect, f"나라장터_{range_token}.csv"),
-        ("D2B", "d2b", d2b.collect, f"D2B_{range_token}.csv"),
+        ("나라장터", "nara", nara.collect, f"나라장터_{range_token}.xlsx"),
+        ("D2B", "d2b", d2b.collect, f"D2B_{range_token}.xlsx"),
     ]
     errors = []
     for title, key_name, collector, filename in jobs:
@@ -45,7 +45,8 @@ def run(start_date=None, end_date=None):
                 include_keywords=settings.get("include_keywords", []),
             )
             destination = output_dir / filename
-            save_csv(destination, kept)
+            save_excel(destination, kept, settings.get("highlight_keywords", []),
+                       settings.get("highlight_rules", {}))
             print(f"  완료: API {len(records)}건 / 키워드 필터 제외 {removed}건 / 저장 {len(kept)}건")
             print(f"  결과 파일: {destination}")
         except Exception as exc:

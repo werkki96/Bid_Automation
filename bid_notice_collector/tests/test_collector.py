@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 from config import COLUMNS, read_env, resolve_date_range, api_keys, load_settings
 from collectors import nara, d2b
-from exporter import filter_keywords, save_csv
+from openpyxl import load_workbook
+from exporter import filter_keywords, save_csv, save_excel, EXCEL_COLUMNS
+from highlighter import highlight_reasons
 from main import run
 
 SETTINGS = {
@@ -146,6 +148,69 @@ class CollectorTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "include_keywords"):
                 load_settings(path)
 
+    def test_excel_highlights_titles_and_preserves_text(self):
+        keywords = load_settings()["highlight_keywords"]
+        titles = [f"{term.lower()} 구축 사업" for term in keywords]
+        titles += ["일반 용역", "", "=AI()"]
+        rows = [{"공고명": title, "공고기관(발주기관)": "국방"} for title in titles]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "result.xlsx"
+            save_excel(path, rows, keywords)
+            workbook = load_workbook(path)
+            sheet = workbook.active
+            self.assertEqual([cell.value for cell in sheet[1]], EXCEL_COLUMNS)
+            self.assertEqual(sheet.max_row, len(rows) + 1)
+            for index, title in enumerate(titles, 2):
+                cell = sheet.cell(index, 5)
+                self.assertEqual(cell.value or "", title)
+                if title and title != "일반 용역":
+                    self.assertEqual(cell.fill.fgColor.rgb, "FFFFFF00")
+                    self.assertEqual(cell.fill.patternType, "solid")
+                else:
+                    self.assertIsNone(cell.fill.patternType)
+                self.assertIsNone(sheet.cell(index, 6).fill.patternType)
+            self.assertEqual(sheet.cell(len(rows) + 1, 5).data_type, "s")
+            workbook.close()
+            save_excel(path, [{"공고명": "AI"}], [" "])
+            workbook = load_workbook(path)
+            self.assertIsNone(workbook.active["E2"].fill.patternType)
+            workbook.close()
+            save_excel(path, [], keywords)
+            workbook = load_workbook(path)
+            self.assertEqual(workbook.active.max_row, 1)
+            workbook.close()
+
+    def test_highlight_keywords_settings_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "settings.json"
+            for invalid in ("AI", [1], None):
+                path.write_text(json.dumps({**SETTINGS, "highlight_keywords": invalid}), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "highlight_keywords"):
+                    load_settings(path)
+
+    def test_broad_highlight_rules(self):
+        rules = load_settings()["highlight_rules"]
+        for title in ["지역 장기종합발전계획 수립", "무기체계 유지보수", "시설 설립 타당성 조사",
+                      "북한 경제성장 분석", "R& D 사업 기획", "ＡＩ 플랫폼 운영", "군사용 World Model 개발",
+                      "전사 자료 복원", "항공 영번역"]:
+            with self.subTest(title=title):
+                self.assertTrue(highlight_reasons(title, rules=rules))
+        self.assertEqual(highlight_reasons("청사 청소 용역", rules=rules), [])
+        self.assertEqual(highlight_reasons(None, rules=rules), [])
+        self.assertEqual(highlight_reasons("AI 연구", [], {}), [])
+        self.assertEqual(highlight_reasons("A I", ["AI", "ai", " "]), ["지정 키워드: AI"])
+        reasons = highlight_reasons("국방 연구", rules=rules)
+        self.assertTrue(any("관심 분야" in reason for reason in reasons))
+        self.assertTrue(any("과업 성격" in reason for reason in reasons))
+
+    def test_highlight_rules_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "settings.json"
+            for rules in (None, [], {"분야": "AI"}, {"분야": [1]}, {" ": []}):
+                path.write_text(json.dumps({**SETTINGS, "highlight_rules": rules}), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "highlight_rules"):
+                    load_settings(path)
+
     def test_main_calls_both_collectors_and_writes_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_dir = Path(tmp)
@@ -153,6 +218,8 @@ class CollectorTests(unittest.TestCase):
             settings["include_keywords"] = ["학술", "과제"]
             settings["exclude_keywords"] = ["제외"]
             settings["output_directory"] = "output"
+            settings["highlight_keywords"] = []
+            settings["highlight_rules"] = {"과업": ["학술", "과제"]}
             fake_nara = [{"공고명": "학술 연구", "공고위치": "나라장터"},
                          {"공고명": "제외할 공고", "공고위치": "나라장터"}]
             fake_d2b = [{"공고명": "과제 공고", "공고위치": "조달청"}]
@@ -164,12 +231,17 @@ class CollectorTests(unittest.TestCase):
                 self.assertEqual(run("2026-10-12", "2026-10-14"), 0)
                 nc.assert_called_once_with("test1", date(2026, 10, 12), date(2026, 10, 14), settings)
                 dc.assert_called_once_with("test2", date(2026, 10, 12), date(2026, 10, 14), settings)
-            nara_file = tmp_dir / "output" / "나라장터_20261012_20261014.csv"
-            d2b_file = tmp_dir / "output" / "D2B_20261012_20261014.csv"
+            nara_file = tmp_dir / "output" / "나라장터_20261012_20261014.xlsx"
+            d2b_file = tmp_dir / "output" / "D2B_20261012_20261014.xlsx"
             self.assertTrue(nara_file.is_file())
             self.assertTrue(d2b_file.is_file())
-            with nara_file.open(encoding="utf-8-sig", newline="") as f:
-                self.assertEqual(len(list(csv.DictReader(f))), 1)
+            self.assertEqual(len(list((tmp_dir / "output").iterdir())), 2)
+            for path in (nara_file, d2b_file):
+                workbook = load_workbook(path)
+                self.assertEqual(workbook.active.max_row, 2)
+                self.assertEqual(workbook.active["E2"].fill.fgColor.rgb, "FFFFFF00")
+                self.assertIn("과업:", workbook.active["K2"].value)
+                workbook.close()
 
 
 if __name__ == "__main__":

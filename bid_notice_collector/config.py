@@ -56,6 +56,16 @@ def load_settings(path=None):
     if not isinstance(data, dict):
         raise ValueError("settings.json의 최상위 구조는 객체여야 합니다.")
     includes = data.get("include_keywords", [])
+    highlights = data.get("highlight_keywords", [])
+    rules = data.get("highlight_rules", {})
+    if not isinstance(rules, dict) or any(
+        not isinstance(label, str) or not label.strip()
+        or not isinstance(terms, list) or any(not isinstance(term, str) for term in terms)
+        for label, terms in rules.items()
+    ):
+        raise ValueError("highlight_rules에는 분류명과 문자열 목록으로 구성된 객체를 입력해야 합니다.")
+    if not isinstance(highlights, list) or any(not isinstance(x, str) for x in highlights):
+        raise ValueError("highlight_keywords에는 문자열 목록을 입력해야 합니다.")
     if not isinstance(includes, list) or any(not isinstance(x, str) for x in includes):
         raise ValueError("include_keywords에는 문자열 목록을 입력해야 합니다.")
     keywords = data.get("exclude_keywords", [])
