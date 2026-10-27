@@ -3,4 +3,6 @@
 # 작업자: SMI 장지수
 
 나라장터_학술연구용역_20261015_20261016.csv
-.vscode/
+.vscode/*
+!.vscode/
+!.vscode/launch.json

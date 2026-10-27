@@ -6,7 +6,7 @@
 from pathlib import Path
 from config import BASE_DIR, api_keys, load_settings, resolve_date_range
 from collectors import nara, d2b
-from exporter import filter_keywords, mark_excluded, save_excel
+from exporter import filter_keywords, mark_highlight_suppressed, save_excel
 from highlighter import highlight_reasons
 
 
@@ -24,8 +24,10 @@ def run_ui(start_date, end_date, keywords, emit, sources=('nara', 'd2b'),
     first, last = resolve_date_range(settings, start_date, end_date)
     terms = parse_keywords(keywords)
     configured_ui_excludes = settings.get('exclude_keywords', [])
-    ui_excludes = parse_keywords(
-        configured_ui_excludes if exclude_keywords is None else exclude_keywords
+    ui_excludes = (
+        configured_ui_excludes
+        if exclude_keywords is None
+        else exclude_keywords
     )
     keys = api_keys()
     output = (BASE_DIR / settings.get('output_directory', 'output')).resolve()
@@ -52,11 +54,24 @@ def run_ui(start_date, end_date, keywords, emit, sources=('nara', 'd2b'),
                 include_keywords=terms,
             )
             search_columns = settings.get('keyword_search_columns', ['공고명'])
-            matched = mark_excluded(matched, ui_excludes, search_columns)
+            matched = mark_highlight_suppressed(matched, ui_excludes, search_columns)
             # 화면에도 저장 파일과 같은 규칙의 강조 근거를 전달합니다.
-            matched = [dict(row, **{"강조 근거": "; ".join(highlight_reasons(
-                row.get("공고명"), settings.get("highlight_keywords", []),
-                settings.get("highlight_rules", {})))}) for row in matched]
+            matched = [
+                dict(
+                    row,
+                    **{
+                        "강조 근거": ""
+                        if row.get("_highlight_suppressed")
+                        else "; ".join(highlight_reasons(
+                            row.get("공고명"),
+                            settings.get("highlight_keywords", []),
+                            settings.get("highlight_rules", {}),
+                            row.get("공고기관(발주기관)"),
+                        )),
+                    },
+                )
+                for row in matched
+            ]
             shown.extend(matched)
             emit({'type':'page', 'source':name, 'page':page, 'pages':pages,
                   'total':total, 'rows':matched, 'matched':len(shown)})

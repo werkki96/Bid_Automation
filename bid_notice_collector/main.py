@@ -11,7 +11,7 @@ import sys
 
 from config import BASE_DIR, api_keys, load_settings, resolve_date_range
 from collectors import nara, d2b
-from exporter import filter_keywords, mark_excluded, save_excel
+from exporter import filter_keywords, mark_highlight_suppressed, save_excel
 
 
 def run(start_date=None, end_date=None):
@@ -42,14 +42,14 @@ def run(start_date=None, end_date=None):
             continue
         try:
             records = collector(keys[key_name], start, end, settings)
-            # 제외 키워드 공고도 저장하되, 결과에서 붉은색으로 표시합니다.
+            # 제외 키워드 공고도 저장하되, 노란색 하이라이트만 억제합니다.
             kept, removed = filter_keywords(
                 records,
                 [],
                 settings.get("keyword_search_columns", ["공고명"]),
                 include_keywords=settings.get("include_keywords", []),
             )
-            kept = mark_excluded(
+            kept = mark_highlight_suppressed(
                 kept,
                 settings.get("exclude_keywords", []),
                 settings.get("keyword_search_columns", ["공고명"]),

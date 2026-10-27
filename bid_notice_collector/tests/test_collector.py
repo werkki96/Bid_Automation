@@ -13,7 +13,13 @@ from unittest.mock import patch
 from config import COLUMNS, read_env, resolve_date_range, api_keys, load_settings
 from collectors import nara, d2b
 from openpyxl import load_workbook
-from exporter import filter_keywords, save_csv, save_excel, EXCEL_COLUMNS
+from exporter import (
+    EXCEL_COLUMNS,
+    filter_keywords,
+    matches_exclusion,
+    save_csv,
+    save_excel,
+)
 from highlighter import highlight_reasons
 from main import run
 
@@ -194,6 +200,32 @@ class CollectorTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "include_keywords"):
                 load_settings(path)
 
+    def test_exclude_keywords_support_or_and_conditions(self):
+        record = {"공고명": "00학교 AI교육 인재 양성 방안 연구"}
+        self.assertTrue(matches_exclusion(
+            record, ["건설", ["학교", "교육"]], ["공고명"]
+        ))
+        self.assertFalse(matches_exclusion(
+            {"공고명": "00사관학교 AI사이버 공방 훈련 시스템 발전 방안연구"},
+            ["건설", ["학교", "교육"]],
+            ["공고명"],
+        ))
+        self.assertTrue(matches_exclusion(
+            {"공고명": "학생 진로 연수 운영"},
+            ["00", ["학생|학교|교육", "연수"]],
+            ["공고명"],
+        ))
+        self.assertTrue(matches_exclusion(
+            {"공고명": "학교 교직원 연수"},
+            [["학생|학교|교육", "연수"]],
+            ["공고명"],
+        ))
+        self.assertFalse(matches_exclusion(
+            {"공고명": "사관학교 AI 연구"},
+            [["학생|학교|교육", "연수"]],
+            ["공고명"],
+        ))
+
     def test_excel_highlights_titles_and_preserves_text(self):
         keywords = load_settings()["highlight_keywords"]
         titles = [f"{term.lower()} 구축 사업" for term in keywords]
@@ -256,11 +288,12 @@ class CollectorTests(unittest.TestCase):
 
     def test_broad_highlight_rules(self):
         rules = load_settings()["highlight_rules"]
-        for title in ["지역 장기종합발전계획 수립", "무기체계 유지보수", "시설 설립 타당성 조사",
-                      "북한 경제성장 분석", "R& D 사업 기획", "ＡＩ 플랫폼 운영", "군사용 World Model 개발",
-                      "전사 자료 복원", "항공 영번역"]:
+        for title in ["국방 발전계획 수립", "무기체계 연구", "시설 타당성 조사",
+                      "북한 경제성장 분석", "AI 사업 기획", "ＡＩ 플랫폼 연구",
+                      "군사용 World Model 개발 연구", "전사 자료 연구", "항공 영번역"]:
             with self.subTest(title=title):
-                self.assertTrue(highlight_reasons(title, rules=rules))
+                expected = title not in {"시설 타당성 조사"}
+                self.assertEqual(bool(highlight_reasons(title, rules=rules)), expected)
         self.assertEqual(highlight_reasons("청사 청소 용역", rules=rules), [])
         self.assertEqual(highlight_reasons(None, rules=rules), [])
         self.assertEqual(highlight_reasons("AI 연구", [], {}), [])
@@ -268,6 +301,20 @@ class CollectorTests(unittest.TestCase):
         reasons = highlight_reasons("국방 연구", rules=rules)
         self.assertTrue(any("관심 분야" in reason for reason in reasons))
         self.assertTrue(any("과업 성격" in reason for reason in reasons))
+        self.assertEqual(highlight_reasons("AI 구축", rules=rules), [])
+        self.assertTrue(highlight_reasons("AI 연구", rules=rules))
+        self.assertTrue(highlight_reasons(
+            "AI 구축", rules=rules, issuer="국방과학연구소"
+        ))
+        self.assertTrue(highlight_reasons(
+            "연구 용역", rules=rules, issuer="국방과학연구소"
+        ))
+        self.assertTrue(highlight_reasons(
+            "해양 장비 개선", rules=rules, issuer="방산기업"
+        ))
+        self.assertEqual(highlight_reasons(
+            "AI 구축", rules=rules, issuer="일반 연구원"
+        ), [])
 
     def test_highlight_rules_validation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -306,11 +353,11 @@ class CollectorTests(unittest.TestCase):
             for path in (nara_file, d2b_file):
                 workbook = load_workbook(path)
                 self.assertEqual(workbook.active.max_row, 2)
-                self.assertEqual(workbook.active["E2"].fill.fgColor.rgb, "FFFFFF00")
+                self.assertIsNone(workbook.active["E2"].fill.patternType)
                 self.assertEqual(workbook.active["A1"].fill.fgColor.rgb, "FFD9D9D9")
                 self.assertEqual(workbook.active["A2"].border.left.style, "thin")
                 self.assertEqual(workbook.active["A2"].border.left.color.rgb, "FF000000")
-                self.assertIn("과업:", workbook.active["K2"].value)
+                self.assertIsNone(workbook.active["K2"].value)
                 workbook.close()
 
 

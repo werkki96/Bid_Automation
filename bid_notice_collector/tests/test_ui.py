@@ -51,7 +51,7 @@ class UITests(unittest.TestCase):
                 'keyword_search_columns': ['공고명'],
                 'highlight_keywords': ['AI'], 'highlight_rules': {'과업': ['연구']},
             }
-            records = [{'공고명': '일반 용역'}, {'공고명': 'AI 구축'},
+            records = [{'공고명': '일반 용역'}, {'공고명': 'AI 연구'},
                        {'공고명': '정책 연구'}, {'공고명': 'AI 제외'}, {'공고명': '=1+1'}]
             def collect(key, first, last, settings, on_page):
                 on_page(records[:2], 1, 2, 5)
@@ -73,22 +73,27 @@ class UITests(unittest.TestCase):
                 sheet = workbook.active
                 self.assertEqual([c.value for c in sheet[1]], EXCEL_COLUMNS)
                 self.assertEqual([c.value for c in sheet['E'][1:]],
-                                 ['AI 구축', '정책 연구', '일반 용역', '=1+1', 'AI 제외'])
+                                 ['AI 연구', '일반 용역', '정책 연구', 'AI 제외', '=1+1'])
                 self.assertEqual(sheet['E2'].fill.fgColor.rgb, 'FFFFFF00')
-                self.assertEqual(sheet['E3'].fill.fgColor.rgb, 'FFFFFF00')
+                self.assertIsNone(sheet['E3'].fill.patternType)
                 self.assertIsNone(sheet['E4'].fill.patternType)
-                self.assertEqual(sheet['K2'].value, '지정 키워드: AI')
-                self.assertEqual(sheet['K3'].value, '과업: 연구')
+                self.assertEqual(sheet['K2'].value, '지정 키워드: AI; 과업: 연구')
+                self.assertIsNone(sheet['K3'].value)
                 self.assertEqual(sheet['A1'].fill.fgColor.rgb, 'FFD9D9D9')
                 self.assertEqual(sheet['E2'].border.left.style, 'thin')
                 self.assertEqual(sheet.freeze_panes, 'A2')
                 self.assertEqual(sheet.auto_filter.ref, 'A1:K6')
                 self.assertEqual(sheet['E5'].data_type, 's')
-                self.assertEqual(sheet['E6'].fill.fgColor.rgb, 'FFFFC7CE')
+                self.assertIsNone(sheet['E5'].fill.patternType)
+                self.assertIsNone(sheet['E6'].fill.patternType)
                 workbook.close()
             page_rows = [r for e in events if e['type'] == 'page' for r in e['rows']]
             self.assertTrue(all('강조 근거' in r for r in page_rows))
-            self.assertTrue(any(r['강조 근거'] == '과업: 연구' for r in page_rows))
+            self.assertTrue(any('과업: 연구' in r['강조 근거'] for r in page_rows))
+            self.assertEqual(
+                next(r for r in page_rows if r['공고명'] == 'AI 제외')['강조 근거'],
+                '',
+            )
             self.assertNotIn('강조 근거', records[0])
 
     def test_failed_collection_preserves_existing_excel(self):

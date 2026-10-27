@@ -28,6 +28,13 @@ class App(tk.Tk):
         self.highlighted_count = {'nara': 0, 'd2b': 0}
         self.excluded_count = {'nara': 0, 'd2b': 0}
         self.tables = {}
+        self.selected_cells = {}
+        self.keyword_editors = {}
+        settings = load_settings()
+        self.keyword_values = {
+            'highlight': list(settings.get('highlight_keywords', [])),
+            'exclude': list(settings.get('exclude_keywords', [])),
+        }
         self.count_labels = {}
         self.source_status = {'nara': '대기 중', 'd2b': '대기 중'}
         self._configure_style()
@@ -52,24 +59,23 @@ class App(tk.Tk):
         self.end.insert(0, str(today))
         self.end.grid(row=0, column=3, padx=(0, 20))
         ttk.Label(fields, text='검색 키워드').grid(row=0, column=4, padx=(0, 6))
-        settings = load_settings()
         self.keywords = ttk.Entry(fields, width=28)
         self.keywords.insert(0, ', '.join(settings.get('include_keywords', [])))
         self.keywords.grid(row=0, column=5, padx=(0, 18), sticky='ew')
+        self.keywords.bind('<Return>', self._start_from_keyword_entry)
         keyword_row = ttk.Frame(fields)
         keyword_row.grid(row=1, column=0, columnspan=6, pady=(10, 0), sticky='ew')
-        ttk.Label(keyword_row, text='하이라이트').pack(side='left', padx=(0, 6))
-        self.highlight_keywords = ttk.Entry(keyword_row, width=28)
-        self.highlight_keywords.insert(
-            0, ', '.join(settings.get('highlight_keywords', [])))
-        self.highlight_keywords.pack(side='left', padx=(0, 18))
-        ttk.Label(keyword_row, text='제외').pack(side='left', padx=(0, 6))
-        self.exclude_keywords = ttk.Entry(keyword_row, width=28)
-        self.exclude_keywords.insert(0, ', '.join(settings.get('exclude_keywords', [])))
-        self.exclude_keywords.pack(side='left', padx=(0, 6))
+        ttk.Button(
+            keyword_row, text='하이라이트 편집',
+            command=lambda: self._open_keyword_editor('highlight'),
+        ).pack(side='left', padx=(0, 6))
+        ttk.Button(
+            keyword_row, text='제외 편집',
+            command=lambda: self._open_keyword_editor('exclude'),
+        ).pack(side='left', padx=(0, 18))
         self.save_keywords_button = ttk.Button(
-            fields, text='키워드 저장', command=self.save_keywords)
-        self.save_keywords_button.grid(row=1, column=6, padx=(8, 0), pady=(10, 0))
+            keyword_row, text='키워드 저장', command=self.save_keywords)
+        self.save_keywords_button.pack(side='left')
         self.nara = tk.BooleanVar(value=True)
         self.d2b = tk.BooleanVar(value=True)
         ttk.Checkbutton(fields, text='나라장터', variable=self.nara).grid(
@@ -107,6 +113,10 @@ class App(tk.Tk):
         ttk.Label(status_bar, textvariable=self.status, foreground='#52606d').pack(side='left')
         self.after(150,self.poll)
 
+    def _start_from_keyword_entry(self, _event):
+        self.start_job()
+        return 'break'
+
     def _configure_style(self):
         style = ttk.Style(self)
         try:
@@ -122,6 +132,20 @@ class App(tk.Tk):
         style.configure('TNotebook.Tab', padding=(18, 8), font=('맑은 고딕', 10))
         style.configure('Treeview', rowheight=28, font=('맑은 고딕', 9),
                         background='white', fieldbackground='white')
+        style.configure(
+            'Keyword.Treeview',
+            rowheight=34,
+            font=('맑은 고딕', 10),
+            background='white',
+            fieldbackground='white',
+            borderwidth=1,
+            relief='solid',
+        )
+        style.map(
+            'Keyword.Treeview',
+            background=[('selected', '#b9d9f5')],
+            foreground=[('selected', '#111827')],
+        )
         style.configure('Treeview.Heading', font=('맑은 고딕', 9, 'bold'),
                         background='#e8eef5', foreground='#17324d')
 
@@ -145,20 +169,20 @@ class App(tk.Tk):
             '공고위치': 70,
             '공고번호': 55,
             '공고구분': 75,
-            '공고일자': 100,
-            '공고명': 220,
+            '공고일자': 80,
+            '공고명': 350,
             '공고기관(발주기관)': 70,
             '수요기관': 70,
-            '추정가격(원)': 125,
-            '입찰참가등록 마감일시': 170,
+            '추정가격(원)': 100,
+            '입찰참가등록 마감일시': 100,
             '상세보기 주소': 260,
         }
         for col in EXCEL_COLUMNS:
             table.heading(col, text=col)
             table.column(col, width=column_widths.get(col, 150), stretch=False)
         table.bind('<Button-1>', self._handle_detail_click)
+        table.bind('<Control-c>', self._copy_selected_cell)
         table.tag_configure('highlight', background='#fff4bf')
-        table.tag_configure('excluded', background='#ffc7ce')
         hscroll = ttk.Scrollbar(frame, orient='horizontal', command=table.xview)
         vscroll = ttk.Scrollbar(frame, orient='vertical', command=table.yview)
         table.configure(xscrollcommand=hscroll.set, yscrollcommand=vscroll.set)
@@ -172,23 +196,121 @@ class App(tk.Tk):
         try:
             save_ui_keywords(
                 parse_keywords(self.keywords.get()),
-                parse_keywords(self.exclude_keywords.get()),
-                parse_keywords(self.highlight_keywords.get()),
+                self.keyword_values['exclude'],
+                self.keyword_values['highlight'],
             )
         except (OSError, ValueError, TypeError) as exc:
             messagebox.showerror('저장 오류', f'키워드를 저장하지 못했습니다.\n{exc}', parent=self)
             return
         self.status.set('키워드 저장 완료')
 
+    def _open_keyword_editor(self, kind):
+        existing = self.keyword_editors.get(kind)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            return
+        title = '하이라이트 키워드 편집' if kind == 'highlight' else '제외 키워드 편집'
+        window = tk.Toplevel(self)
+        window.title(title)
+        window.geometry('760x560')
+        window.minsize(620, 420)
+        window.resizable(True, True)
+        window.transient(self)
+        self.keyword_editors[kind] = window
+
+        ttk.Label(
+            window,
+            text='제외 키워드는 `학생|학교|교육 + 연수`처럼 입력하면 OR와 AND를 함께 사용할 수 있습니다.'
+            if kind == 'exclude' else '한 행에 하나의 하이라이트 키워드를 입력하세요.',
+            wraplength=440,
+        ).pack(fill='x', padx=12, pady=(12, 6))
+        frame = ttk.Frame(window)
+        frame.pack(fill='both', expand=True, padx=12)
+        table = ttk.Treeview(
+            frame,
+            columns=('number', 'keyword'),
+            show='headings',
+            selectmode='browse',
+            style='Keyword.Treeview',
+        )
+        table.heading('number', text='번호')
+        table.heading('keyword', text='조건' if kind == 'exclude' else '키워드')
+        table.column('number', width=70, minwidth=70, stretch=False, anchor='center')
+        table.column('keyword', width=620, minwidth=400, stretch=True)
+        table.grid(row=0, column=0, sticky='nsew')
+        scrollbar = ttk.Scrollbar(frame, orient='vertical', command=table.yview)
+        scrollbar.grid(row=0, column=1, sticky='ns')
+        table.configure(yscrollcommand=scrollbar.set)
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+
+        def display_value(value):
+            return ' + '.join(value) if isinstance(value, list) else str(value)
+
+        def refresh_numbers():
+            for number, row_id in enumerate(table.get_children(), 1):
+                current = table.item(row_id, 'values')
+                table.item(row_id, values=(number, current[1]))
+                table.item(row_id, tags=('even' if number % 2 == 0 else 'odd',))
+
+        table.tag_configure('even', background='#f3f6fa')
+        table.tag_configure('odd', background='white')
+
+        for value in self.keyword_values[kind]:
+            table.insert('', 'end', values=('', display_value(value)))
+        refresh_numbers()
+
+        entry = ttk.Entry(window)
+        entry.pack(fill='x', padx=12, pady=(8, 4))
+
+        def add_row():
+            value = entry.get().strip()
+            if not value:
+                return
+            table.insert('', 'end', values=('', value))
+            refresh_numbers()
+            entry.delete(0, 'end')
+
+        def remove_row():
+            selected = table.selection()
+            if selected:
+                table.delete(selected[0])
+                refresh_numbers()
+
+        def apply_rows():
+            values = []
+            for row_id in table.get_children():
+                value = str(table.item(row_id, 'values')[1]).strip()
+                if value:
+                    parts = [part.strip() for part in value.split('+') if part.strip()]
+                    values.append(parts if kind == 'exclude' and len(parts) > 1 else value)
+            self.keyword_values[kind] = values
+            close_editor()
+
+        buttons = ttk.Frame(window)
+        buttons.pack(fill='x', padx=12, pady=(4, 12))
+        ttk.Button(buttons, text='+ 추가', command=add_row).pack(side='left')
+        ttk.Button(buttons, text='- 제거', command=remove_row).pack(side='left', padx=6)
+        ttk.Button(buttons, text='적용', command=apply_rows).pack(side='right')
+        entry.bind('<Return>', lambda _event: add_row())
+
+        def close_editor():
+            self.keyword_editors.pop(kind, None)
+            window.destroy()
+
+        window.protocol('WM_DELETE_WINDOW', close_editor)
+
     def _handle_detail_click(self, event):
         table = event.widget
-        detail_column = f'#{EXCEL_COLUMNS.index("상세보기 주소") + 1}'
         if table.identify_region(event.x, event.y) != 'cell':
             return
-        if table.identify_column(event.x) != detail_column:
-            return
         row_id = table.identify_row(event.y)
-        if not row_id:
+        column_id = table.identify_column(event.x)
+        if not row_id or not column_id.startswith('#'):
+            return
+        self.selected_cells[table] = (row_id, int(column_id[1:]) - 1)
+        detail_column = f'#{EXCEL_COLUMNS.index("상세보기 주소") + 1}'
+        if column_id != detail_column:
             return
         values = table.item(row_id, 'values')
         url = str(values[EXCEL_COLUMNS.index("상세보기 주소")]).strip()
@@ -203,6 +325,20 @@ class App(tk.Tk):
             return
         if not webbrowser.open_new_tab(url):
             messagebox.showerror('브라우저 오류', '상세보기 주소를 열 수 없습니다.')
+
+    def _copy_selected_cell(self, event):
+        table = event.widget
+        selected = self.selected_cells.get(table)
+        if selected is None:
+            return 'break'
+        row_id, column_index = selected
+        values = table.item(row_id, 'values')
+        if column_index >= len(values):
+            return 'break'
+        self.clipboard_clear()
+        self.clipboard_append(str(values[column_index]))
+        self.update()
+        return 'break'
 
     @staticmethod
     def _display_value(column, value):
@@ -241,7 +377,7 @@ class App(tk.Tk):
         self.status.set('수집 시작...')
         # Capture tkinter state before crossing thread boundary.
         search_words = self.keywords.get()
-        excluded_words = self.exclude_keywords.get()
+        excluded_words = self.keyword_values['exclude']
         def safe_worker():
             try:
                 run_ui(str(first), str(last), search_words, self.queue.put, sources,
@@ -264,24 +400,15 @@ class App(tk.Tk):
                 for row in event['rows']:
                     self.rows[source].append(row)
                     highlighted = bool(row.get('강조 근거'))
-                    excluded = bool(row.get('_ui_excluded'))
-                    if excluded:
-                        position = 'end'
-                    elif highlighted:
+                    if highlighted:
                         position = self.highlighted_count[source]
                     else:
-                        position = max(
-                            0,
-                            len(table.get_children()) - self.excluded_count[source],
-                        )
+                        position = 'end'
                     values = [self._display_value(c, row.get(c, '')) for c in EXCEL_COLUMNS]
                     table.insert('', position, values=values,
-                                tags=('excluded' if excluded else
-                                      'highlight' if highlighted else ''))
+                                tags=('highlight' if highlighted else ''))
                     if highlighted:
                         self.highlighted_count[source] += 1
-                    if excluded:
-                        self.excluded_count[source] += 1
                     self.count_labels[source].set(f"{len(self.rows[source])}건")
                     self.source_status[source] = (
                         f"{event['page']}/{event['pages']}페이지")

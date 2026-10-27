@@ -26,7 +26,6 @@ def save_excel(path, records, highlight_keywords=None, highlight_rules=None):
     sheet.append(EXCEL_COLUMNS)
     header_fill = PatternFill(fill_type="solid", fgColor="FFD9D9D9")
     yellow = PatternFill(fill_type="solid", fgColor="FFFFFF00")
-    red = PatternFill(fill_type="solid", fgColor="FFFFC7CE")
     cell_border = Border(
         left=Side(style="thin", color="FF000000"),
         right=Side(style="thin", color="FF000000"),
@@ -38,11 +37,15 @@ def save_excel(path, records, highlight_keywords=None, highlight_rules=None):
         cell.border = cell_border
     highlighted_records = []
     for record in records:
-        reasons = highlight_reasons(record.get("공고명"), highlight_keywords, highlight_rules)
-        highlighted_records.append((bool(record.get("_ui_excluded")), bool(reasons), record, reasons))
-    # 안정 정렬: 강조 공고를 위로 모으되 각 그룹 안의 API 수집 순서는 유지합니다.
-    highlighted_records.sort(key=lambda item: (item[0], not item[1]))
-    for excluded, _, record, reasons in highlighted_records:
+        suppressed = bool(record.get("_highlight_suppressed"))
+        reasons = [] if suppressed else highlight_reasons(
+            record.get("공고명"), highlight_keywords, highlight_rules,
+            record.get("공고기관(발주기관)"),
+        )
+        highlighted_records.append((bool(reasons), record, reasons))
+    # 안정 정렬: 강조 공고를 위로 모으되 원래 수집 순서는 유지합니다.
+    highlighted_records.sort(key=lambda item: not item[0])
+    for _, record, reasons in highlighted_records:
         row = sheet.max_row + 1
         for column, name in enumerate(EXCEL_COLUMNS, 1):
             value = "; ".join(reasons) if name == "강조 근거" else record.get(name)
@@ -52,8 +55,6 @@ def save_excel(path, records, highlight_keywords=None, highlight_rules=None):
             cell.border = cell_border
             if name == "공고명" and reasons:
                 cell.fill = yellow
-            if name == "공고명" and excluded:
-                cell.fill = red
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
     sheet.column_dimensions["E"].width = 70
@@ -93,18 +94,29 @@ def filter_keywords(records, keywords, search_columns, include_keywords=None):
     return kept, removed
 
 
-def mark_excluded(records, keywords, search_columns):
-    """Mark matching rows for red highlighting without removing them."""
+def mark_highlight_suppressed(records, keywords, search_columns):
+    """Mark rows whose highlight should be suppressed without removing them."""
     return [
-        dict(record, _ui_excluded=matches_keywords(record, keywords, search_columns))
+        dict(record, _highlight_suppressed=matches_exclusion(record, keywords, search_columns))
         for record in records
     ]
 
 
-def matches_keywords(record, keywords, search_columns):
-    terms = [term.strip().casefold() for term in keywords if term.strip()]
+def matches_exclusion(record, keywords, search_columns):
     haystacks = [str(record.get(name, "") or "").casefold() for name in search_columns]
-    return bool(terms) and any(term in text for term in terms for text in haystacks)
+    for entry in keywords:
+        terms = [entry] if isinstance(entry, str) else entry
+        groups = [
+            [alternative.strip().casefold() for alternative in term.split("|") if alternative.strip()]
+            for term in terms
+            if isinstance(term, str) and term.strip()
+        ]
+        if groups and all(
+            any(alternative in text for alternative in group for text in haystacks)
+            for group in groups
+        ):
+            return True
+    return False
 
 
 def safe_csv_cell(value):

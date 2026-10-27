@@ -79,8 +79,16 @@ def load_settings(path=None):
         raise ValueError("include_keywords에는 문자열 목록을 입력해야 합니다.")
     keywords = data.get("exclude_keywords", [])
     search_fields = data.get("keyword_search_columns", ["공고명"])
-    if not isinstance(keywords, list) or any(not isinstance(x, str) for x in keywords):
-        raise ValueError("exclude_keywords에는 문자열 목록을 입력해야 합니다.")
+    if not isinstance(keywords, list) or any(
+        not isinstance(x, str)
+        and not (
+            isinstance(x, list)
+            and x
+            and all(isinstance(term, str) and term.strip() for term in x)
+        )
+        for x in keywords
+    ):
+        raise ValueError("exclude_keywords에는 문자열 또는 AND 조건 문자열 목록을 입력하세요.")
     if not isinstance(search_fields, list) or any(x not in COLUMNS for x in search_fields):
         raise ValueError("keyword_search_columns에 올바른 출력 컬럼명을 입력하세요.")
     date_settings = data.get("date_range", {})

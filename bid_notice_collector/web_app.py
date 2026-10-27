@@ -10,13 +10,63 @@ import streamlit as st
 import pandas as pd
 from config import KST, load_settings, save_ui_keywords
 from exporter import EXCEL_COLUMNS
-from ui_runner import run_ui
+from ui_runner import parse_keywords, run_ui
 
 st.set_page_config(page_title='입찰공고 통합 검색', layout='wide')
 st.title('입찰공고 통합 검색')
 st.caption('나라장터 학술·연구용역(1169) · D2B 경쟁입찰공고')
 now = datetime.now(KST).date()
 settings = load_settings()
+st.session_state.setdefault(
+    'web_highlight_keywords', list(settings.get('highlight_keywords', []))
+)
+st.session_state.setdefault(
+    'web_exclude_keywords', list(settings.get('exclude_keywords', []))
+)
+
+
+def _exclude_editor_text(values):
+    return '\n'.join(
+        ' + '.join(item) if isinstance(item, list) else str(item)
+        for item in values
+    )
+
+
+@st.dialog('하이라이트 키워드 편집')
+def edit_highlight_keywords():
+    current = ', '.join(st.session_state.web_highlight_keywords)
+    value = st.text_area(
+        '한 줄에 하나씩 입력하거나 쉼표로 구분하세요.',
+        value=current,
+        height=260,
+        key='highlight_editor',
+    )
+    if st.button('적용', type='primary', key='apply_highlight_editor'):
+        st.session_state.web_highlight_keywords = parse_keywords(value)
+        st.session_state.pop('highlight_editor', None)
+        st.rerun()
+
+
+@st.dialog('제외 키워드 편집')
+def edit_exclude_keywords():
+    value = st.text_area(
+        '한 줄에 하나의 조건을 입력하세요. AND는 `+`, OR는 `|`로 구분합니다.',
+        value=_exclude_editor_text(st.session_state.web_exclude_keywords),
+        height=320,
+        key='exclude_editor',
+    )
+    st.caption('예: 학생|학교|교육 + 연수')
+    if st.button('적용', type='primary', key='apply_exclude_editor'):
+        edited = []
+        for line in value.splitlines():
+            parts = [part.strip() for part in line.split('+') if part.strip()]
+            if parts:
+                edited.append(parts if len(parts) > 1 else parts[0])
+        st.session_state.web_exclude_keywords = edited
+        st.session_state.pop('exclude_editor', None)
+        st.rerun()
+
+
 start = st.date_input('검색 시작일', value=now-timedelta(days=1), key='start')
 end = st.date_input('검색 종료일', value=now, key='end')
 keywords = st.text_input(
@@ -24,24 +74,26 @@ keywords = st.text_input(
     value=', '.join(settings.get('include_keywords', [])),
     key='keywords',
 )
-exclude_keywords = st.text_input(
-    '제외 표시 키워드 (쉼표 구분, 결과에서 제외하지 않고 빨간색·하단 표시)',
-    value=', '.join(settings.get('exclude_keywords', [])),
-    key='exclude_keywords',
-)
-highlight_keywords = st.text_input(
-    '하이라이트 키워드 (쉼표 구분, 공고명 노란색 표시)',
-    value=', '.join(settings.get('highlight_keywords', [])),
-    key='highlight_keywords',
-)
+highlight_col, exclude_col = st.columns(2)
+with highlight_col:
+    st.write('하이라이트 키워드')
+    st.caption(f'{len(st.session_state.web_highlight_keywords)}개 설정됨')
+    if st.button('하이라이트 키워드 보기·편집', use_container_width=True):
+        edit_highlight_keywords()
+with exclude_col:
+    st.write('제외 키워드')
+    st.caption(f'{len(st.session_state.web_exclude_keywords)}개 조건 설정됨')
+    if st.button('제외 키워드 보기·편집', use_container_width=True):
+        edit_exclude_keywords()
+exclude_keywords = st.session_state.web_exclude_keywords
+highlight_keywords = st.session_state.web_highlight_keywords
 sources = st.multiselect('검색 대상', ['나라장터', 'D2B'], default=['나라장터','D2B'])
 if st.button('키워드 저장'):
     try:
-        from ui_runner import parse_keywords
         save_ui_keywords(
             parse_keywords(keywords),
-            parse_keywords(exclude_keywords),
-            parse_keywords(highlight_keywords),
+            exclude_keywords,
+            highlight_keywords,
         )
         st.success('키워드를 저장했습니다.')
     except (OSError, ValueError, TypeError) as exc:
@@ -98,16 +150,13 @@ def results():
     st.subheader(f"검색 결과: {len(job['rows'])}건" + (' · 수집 중' if job['running'] else ''))
 
     def style_row(row):
-        if row.get('_ui_excluded'):
-            return ['background-color: #FFC7CE' if col == '공고명' else ''
-                    for col in EXCEL_COLUMNS]
         return ['background-color: #FFFF00' if col == '공고명' and row['강조 근거'] else ''
                 for col in EXCEL_COLUMNS]
 
     source_rows = {
         source: sorted(
             (row for row in job['rows'] if row.get('공고위치') == source),
-            key=lambda row: (bool(row.get('_ui_excluded')), not bool(row.get('강조 근거'))),
+            key=lambda row: not bool(row.get('강조 근거')),
         )
         for source in ('나라장터', '조달청')
     }
