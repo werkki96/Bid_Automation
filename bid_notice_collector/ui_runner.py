@@ -1,5 +1,5 @@
 # 파일 역할: 웹·데스크톱 UI가 공유하는 수집 실행기입니다. 페이지 이벤트 전달, 필터링과 Excel 저장을 담당합니다.
-# 마지막 업데이트: 2026-10-23
+# 마지막 업데이트: 2026-10-27
 # 작업자: SMI 장지수
 
 """Shared collection engine for Streamlit and Tkinter, streaming each API page."""
@@ -18,9 +18,12 @@ def parse_keywords(value):
 
 
 def run_ui(start_date, end_date, keywords, emit, sources=('nara', 'd2b'),
-           exclude_keywords=None):
+           exclude_keywords=None, highlight_keywords=None):
     """emit(event_dict) is called in a worker thread. No UI operations here."""
     settings = load_settings()
+    # UI에서 편집한 값은 기본값 저장 여부와 관계없이 이번 검색에 적용합니다.
+    if highlight_keywords is not None:
+        settings = dict(settings, highlight_keywords=list(highlight_keywords))
     first, last = resolve_date_range(settings, start_date, end_date)
     terms = parse_keywords(keywords)
     configured_ui_excludes = settings.get('exclude_keywords', [])
