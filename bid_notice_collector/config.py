@@ -1,15 +1,22 @@
+# 파일 역할: 공통 출력 컬럼, 인증키 로딩, 설정 검증과 한국시간(KST) 기준 조회기간 계산을 담당합니다.
+# 마지막 업데이트: 2026-10-23
+# 작업자: SMI 장지수
+
 """Configuration and date handling. Standard library only."""
 
 from datetime import datetime, timedelta, timezone
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import unquote
 
+# 일반 실행은 소스 파일 옆, PyInstaller EXE는 실행 파일 옆의 설정·인증키를 사용합니다.
 BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 KST = timezone(timedelta(hours=9))
 
+# 두 API가 공유하는 원본 출력 순서입니다. Excel에서는 exporter가 강조 근거 열을 덧붙입니다.
 COLUMNS = [
     "공고위치", "공고번호", "입찰구분", "공고구분", "공고일자", "공고명",
     "공고기관(발주기관)", "수요기관", "추정가격(원)",
@@ -45,6 +52,7 @@ def api_keys(env=None):
     env = read_env() if env is None else env
 
     def choose(name):
+        # 우선순위: 서비스별 환경변수 → 서비스별 .env → 공통 환경변수 → 공통 .env.
         value = os.environ.get(name) or env.get(name) or os.environ.get("API_KEY") or env.get("API_KEY", "")
         return unquote(value.strip())
 
@@ -57,12 +65,30 @@ def load_settings(path=None):
     if not isinstance(data, dict):
         raise ValueError("settings.json의 최상위 구조는 객체여야 합니다.")
     includes = data.get("include_keywords", [])
+    highlights = data.get("highlight_keywords", [])
+    rules = data.get("highlight_rules", {})
+    if not isinstance(rules, dict) or any(
+        not isinstance(label, str) or not label.strip()
+        or not isinstance(terms, list) or any(not isinstance(term, str) for term in terms)
+        for label, terms in rules.items()
+    ):
+        raise ValueError("highlight_rules에는 분류명과 문자열 목록으로 구성된 객체를 입력해야 합니다.")
+    if not isinstance(highlights, list) or any(not isinstance(x, str) for x in highlights):
+        raise ValueError("highlight_keywords에는 문자열 목록을 입력해야 합니다.")
     if not isinstance(includes, list) or any(not isinstance(x, str) for x in includes):
         raise ValueError("include_keywords에는 문자열 목록을 입력해야 합니다.")
     keywords = data.get("exclude_keywords", [])
     search_fields = data.get("keyword_search_columns", ["공고명"])
-    if not isinstance(keywords, list) or any(not isinstance(x, str) for x in keywords):
-        raise ValueError("exclude_keywords에는 문자열 목록을 입력해야 합니다.")
+    if not isinstance(keywords, list) or any(
+        not isinstance(x, str)
+        and not (
+            isinstance(x, list)
+            and x
+            and all(isinstance(term, str) and term.strip() for term in x)
+        )
+        for x in keywords
+    ):
+        raise ValueError("exclude_keywords에는 문자열 또는 AND 조건 문자열 목록을 입력하세요.")
     if not isinstance(search_fields, list) or any(x not in COLUMNS for x in search_fields):
         raise ValueError("keyword_search_columns에 올바른 출력 컬럼명을 입력하세요.")
     date_settings = data.get("date_range", {})
@@ -86,6 +112,26 @@ def load_settings(path=None):
     return data
 
 
+def save_ui_keywords(include_keywords, exclude_keywords, highlight_keywords, path=None):
+    """Persist keyword values entered by the web or desktop UI."""
+    target = Path(path) if path is not None else BASE_DIR / "settings.json"
+    data = json.loads(target.read_text(encoding="utf-8"))
+    data["include_keywords"] = list(include_keywords)
+    data["exclude_keywords"] = list(exclude_keywords)
+    data["highlight_keywords"] = list(highlight_keywords)
+    fd, temporary = tempfile.mkstemp(prefix=".settings_", suffix=".json", dir=target.parent)
+    os.close(fd)
+    try:
+        Path(temporary).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, target)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def _parse_date(value, label):
     try:
         return datetime.strptime(value, "%Y-%m-%d").date()
@@ -98,6 +144,7 @@ def resolve_date_range(settings, explicit_start=None, explicit_end=None, now=Non
 
     Settings may specify both dates (or neither); a CLI override must give both.
     """
+    # 조회기간 우선순위: CLI 날짜 → settings 날짜 → KST 어제~오늘(양끝 포함).
     if explicit_start is not None or explicit_end is not None:
         if not explicit_start or not explicit_end:
             raise ValueError("직접 날짜를 지정할 때는 시작일과 종료일을 모두 입력하세요.")

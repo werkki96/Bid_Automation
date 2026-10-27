@@ -1,4 +1,8 @@
-"""방위사업청 D2B 국내 경쟁입찰공고 수집."""
+# 파일 역할: D2B 국내 경쟁입찰 공고를 날짜 범위로 조회하고 XML 응답을 공통 컬럼으로 변환합니다.
+# 마지막 업데이트: 2026-10-23
+# 작업자: SMI 장지수
+
+"""방위사업청 D2B 용역 경쟁입찰공고 수집."""
 
 import xml.etree.ElementTree as ET
 from http_client import fetch_bytes, collect_pages
@@ -12,6 +16,7 @@ API_URL = (
 
 
 def local_name(tag):
+    # XML 네임스페이스가 붙은 {주소}태그에서도 실제 태그명만 비교합니다.
     return tag.rsplit("}", 1)[-1]
 
 
@@ -31,6 +36,14 @@ def parse_items(root):
     return result
 
 
+def is_service_bid(item):
+    return (item.get("busiDivs") or "").strip() == "용역"
+
+
+def is_private_contract(item):
+    return "수의" in str(item.get("cntrctMth") or "")
+
+
 def convert(item, display_name):
     # D2B의 G2B번호가 없는 경우, 자체 공고번호를 사용합니다.
     g2b_no = item.get("g2bPblancNo") or ""
@@ -46,7 +59,7 @@ def convert(item, display_name):
         "공고명": item.get("bidNm") or "",
         "공고기관(발주기관)": item.get("ornt") or "",
         "수요기관": "",  # 이 목록 API 응답에 없음
-        "추정가격(원)": "",  # bsicExpt는 '기초예비가격'이며 추정가격 아님
+        "추정가격(원)": item.get("bsicExpt") or "",
         "입찰참가등록 마감일시": item.get("bidPartcptRegistClosDt") or "",
         "상세보기 주소": D2B_LIST_URL,  # 개별 공고 링크가 아닌 검색 목록 페이지
     }
@@ -57,6 +70,7 @@ def collect(api_key, start_date, end_date, settings, on_page=None):
     start_token = start_date.strftime("%Y%m%d")
     end_token = end_date.strftime("%Y%m%d")
 
+    # 이 API에는 나라장터의 업종 1169·입찰마감제외 조건을 전달하지 않습니다.
     def fetch(page):
         params = {
             "serviceKey": api_key,
@@ -78,14 +92,24 @@ def collect(api_key, start_date, end_date, settings, on_page=None):
         except ET.ParseError as exc:
             raise RuntimeError("D2B API가 올바른 XML을 반환하지 않았습니다.") from exc
 
-    display_name = settings["d2b"]["display_name"]
+    # UI에는 원본 API 필드 대신 화면·출력에서 사용하는 공통 컬럼으로 전달합니다.
     def notify_page(items, page, pages, total):
+        rows = [convert(item, settings["d2b"]["display_name"]) for item in items]
+        for row in rows:
+            print(f"[D2B] 수집 공고명: {row['공고명']}")
         if on_page is not None:
-            on_page([convert(item, display_name) for item in items], page, pages, total)
+            on_page(rows, page, pages, total)
 
-    raw_records = collect_pages(fetch, page_size, "D2B", on_page=notify_page)
-    raw_records = [
-        row for row in raw_records
-        if (row.get("busiDivs") or "").strip() == "용역"
-    ]
+    # D2B 목록 API는 물품·공사·용역을 함께 반환하므로 용역만 저장합니다.
+    def filter_service(items):
+        return [
+            item for item in items
+            if is_service_bid(item) and not is_private_contract(item)
+        ]
+
+    def notify_service_page(items, page, pages, total):
+        notify_page(filter_service(items), page, pages, total)
+
+    raw_records = collect_pages(fetch, page_size, "D2B", on_page=notify_service_page)
+    raw_records = filter_service(raw_records)
     return [convert(row, settings["d2b"]["display_name"]) for row in raw_records]

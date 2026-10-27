@@ -1,3 +1,7 @@
+# 파일 역할: 나라장터 용역 공고를 날짜·업종·마감 조건으로 조회하고 JSON 응답을 공통 컬럼으로 변환합니다.
+# 마지막 업데이트: 2026-10-23
+# 작업자: SMI 장지수
+
 """나라장터(G2B) 학술·연구용역 입찰공고 수집."""
 
 import json
@@ -28,6 +32,16 @@ def convert(item, display_name):
     }
 
 
+def is_private_contract(item):
+    contract_method = (
+        item.get("cntrctCnclsMthdNm")
+        or item.get("cntrctMthdNm")
+        or item.get("cntrctMth")
+        or ""
+    )
+    return "수의" in str(contract_method)
+
+
 def collect(api_key, start_date, end_date, settings, on_page=None):
     page_size = settings["page_size"]
     source_settings = settings["nara"]
@@ -41,11 +55,13 @@ def collect(api_key, start_date, end_date, settings, on_page=None):
             "numOfRows": page_size,
             "pageNo": page,
             "inqryDiv": "1",  # 공고게시일시
+            # 시작일 00:00부터 종료일 23:59까지 조회합니다. 업종·마감 조건은 서버에서 적용합니다.
             "inqryBgnDt": start_token + "0000",
             "inqryEndDt": end_token + "2359",
             "indstrytyCd": source_settings.get("industry_code", "1169"),
             "bidClseExcpYn": source_settings.get("exclude_closed", "Y"),
         }
+        
         raw = fetch_bytes(API_URL, params)
         try:
             data = json.loads(raw.decode("utf-8-sig"))
@@ -55,6 +71,7 @@ def collect(api_key, start_date, end_date, settings, on_page=None):
                 raise RuntimeError(f"나라장터 API 오류: {header.get('resultCode')} / {header.get('resultMsg')}")
             body = response["body"]
             count = int(body["totalCount"])
+            # 응답의 items/item이 목록 또는 단일 객체인 경우를 모두 목록으로 통일합니다.
             container = body.get("items") or {}
             if isinstance(container, dict):
                 records = container.get("item") or []
@@ -70,10 +87,21 @@ def collect(api_key, start_date, end_date, settings, on_page=None):
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             raise RuntimeError("나라장터 API 응답 형식 확인 필요 (JSON 구조/인증키 확인)") from exc
 
-    display_name = source_settings["display_name"]
+    # UI에는 원본 API 필드 대신 화면·출력에서 사용하는 공통 컬럼으로 전달합니다.
     def notify_page(items, page, pages, total):
+        rows = [
+            convert(item, source_settings["display_name"])
+            for item in items
+            if not is_private_contract(item)
+        ]
+        for row in rows:
+            print(f"[나라장터] 수집 공고명: {row['공고명']}")
         if on_page is not None:
-            on_page([convert(item, display_name) for item in items], page, pages, total)
+            on_page(rows, page, pages, total)
 
     raw_records = collect_pages(fetch, page_size, "나라장터", on_page=notify_page)
-    return [convert(row, source_settings["display_name"]) for row in raw_records]
+    return [
+        convert(row, source_settings["display_name"])
+        for row in raw_records
+        if not is_private_contract(row)
+    ]

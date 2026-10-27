@@ -1,3 +1,7 @@
+# 파일 역할: 프로그램 진입점. 날짜·인증키를 읽고 두 API 수집, 키워드 필터링, Excel 저장을 순서대로 실행합니다.
+# 마지막 업데이트: 2026-10-23
+# 작업자: SMI 장지수
+
 """Entry point: python main.py"""
 
 import argparse
@@ -7,7 +11,7 @@ import sys
 
 from config import BASE_DIR, api_keys, load_settings, resolve_date_range
 from collectors import nara, d2b
-from exporter import filter_keywords, save_csv
+from exporter import filter_keywords, mark_highlight_suppressed, save_excel
 
 
 def run(start_date=None, end_date=None):
@@ -26,8 +30,8 @@ def run(start_date=None, end_date=None):
     print("제외 키워드 수:", len(settings.get("exclude_keywords", [])))
 
     jobs = [
-        ("나라장터", "nara", nara.collect, f"나라장터_{range_token}.csv"),
-        ("D2B", "d2b", d2b.collect, f"D2B_{range_token}.csv"),
+        ("나라장터", "nara", nara.collect, f"나라장터_{range_token}.xlsx"),
+        ("D2B", "d2b", d2b.collect, f"D2B_{range_token}.xlsx"),
     ]
     errors = []
     for title, key_name, collector, filename in jobs:
@@ -38,20 +42,28 @@ def run(start_date=None, end_date=None):
             continue
         try:
             records = collector(keys[key_name], start, end, settings)
+            # 제외 키워드 공고도 저장하되, 노란색 하이라이트만 억제합니다.
             kept, removed = filter_keywords(
                 records,
-                settings.get("exclude_keywords", []),
+                [],
                 settings.get("keyword_search_columns", ["공고명"]),
                 include_keywords=settings.get("include_keywords", []),
             )
+            kept = mark_highlight_suppressed(
+                kept,
+                settings.get("exclude_keywords", []),
+                settings.get("keyword_search_columns", ["공고명"]),
+            )
             destination = output_dir / filename
-            save_csv(destination, kept)
-            print(f"  완료: API {len(records)}건 / 키워드 필터 제외 {removed}건 / 저장 {len(kept)}건")
+            save_excel(destination, kept, settings.get("highlight_keywords", []),
+                       settings.get("highlight_rules", {}))
+            print(f"  완료: API {len(records)}건 / 포함조건 제외 {removed}건 / 저장 {len(kept)}건")
             print(f"  결과 파일: {destination}")
         except Exception as exc:
             # One source failing does not stop the other.
             print(f"  실패: {type(exc).__name__}: {exc}")
             errors.append(title)
+    # 종료코드: 정상 0, 수집 실패 1. CLI 설정 오류는 아래 진입점에서 2로 처리합니다.
     if errors:
         print(f"\n실패한 API: {', '.join(errors)}. 정상 API의 저장 파일은 유지됩니다.")
         return 1

@@ -1,3 +1,7 @@
+# 파일 역할: 페이지 이벤트와 UI 공통 실행기의 키워드 필터·Excel 저장을 모의 응답으로 검증합니다.
+# 마지막 업데이트: 2026-10-23
+# 작업자: SMI 장지수
+
 import tempfile
 import unittest
 from datetime import date
@@ -5,6 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 import ui_runner
 from http_client import collect_pages
+from openpyxl import load_workbook
+from exporter import EXCEL_COLUMNS
 
 class UITests(unittest.TestCase):
     def test_pages_stream_in_order(self):
@@ -33,9 +39,82 @@ class UITests(unittest.TestCase):
                 ui_runner.run_ui('2026-10-12','2026-10-14','연구',events.append)
             self.assertEqual(len([e for e in events if e['type']=='page']),4)
             self.assertEqual(len([e for e in events if e['type']=='saved']),2)
-            self.assertEqual(sum(len(e['rows']) for e in events if e['type']=='page'),2)
-            self.assertTrue((root/'output'/'나라장터_20261012_20261014.csv').exists())
+            self.assertEqual(sum(len(e['rows']) for e in events if e['type']=='page'),4)
+            self.assertTrue((root/'output'/'나라장터_20261012_20261014.xlsx').exists())
             self.assertEqual(events[-1],{'type':'done','failures':[]})
+
+    def test_excel_format_and_highlights_across_pages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = {
+                'output_directory': 'output', 'exclude_keywords': ['제외'],
+                'keyword_search_columns': ['공고명'],
+                'highlight_keywords': ['AI'], 'highlight_rules': {'과업': ['연구']},
+            }
+            records = [{'공고명': '일반 용역'}, {'공고명': 'AI 연구'},
+                       {'공고명': '정책 연구'}, {'공고명': 'AI 제외'}, {'공고명': '=1+1'}]
+            def collect(key, first, last, settings, on_page):
+                on_page(records[:2], 1, 2, 5)
+                on_page(records[2:], 2, 2, 5)
+                return records
+            events = []
+            with patch.object(ui_runner, 'BASE_DIR', root), \
+                 patch.object(ui_runner, 'load_settings', return_value=settings), \
+                 patch.object(ui_runner, 'api_keys', return_value={'nara': 'test', 'd2b': 'test'}), \
+                 patch.object(ui_runner.nara, 'collect', side_effect=collect), \
+                 patch.object(ui_runner.d2b, 'collect', side_effect=collect):
+                ui_runner.run_ui('2026-10-12', '2026-10-14', '', events.append)
+            saved = [e for e in events if e['type'] == 'saved']
+            self.assertEqual(len(saved), 2)
+            self.assertFalse(list((root / 'output').glob('*.csv')))
+            for event in saved:
+                self.assertEqual(event['count'], 5)
+                workbook = load_workbook(event['path'])
+                sheet = workbook.active
+                self.assertEqual([c.value for c in sheet[1]], EXCEL_COLUMNS)
+                self.assertEqual([c.value for c in sheet['F'][1:]],
+                                 ['AI 연구', '일반 용역', '정책 연구', 'AI 제외', '=1+1'])
+                self.assertEqual(sheet['F2'].fill.fgColor.rgb, 'FFFFFF00')
+                self.assertIsNone(sheet['F3'].fill.patternType)
+                self.assertIsNone(sheet['F4'].fill.patternType)
+                self.assertEqual(sheet['L2'].value, '지정 키워드: AI; 과업: 연구')
+                self.assertIsNone(sheet['L3'].value)
+                self.assertEqual(sheet['A1'].fill.fgColor.rgb, 'FFD9D9D9')
+                self.assertEqual(sheet['F2'].border.left.style, 'thin')
+                self.assertEqual(sheet.freeze_panes, 'A2')
+                self.assertEqual(sheet.auto_filter.ref, 'A1:L6')
+                self.assertEqual(sheet['F5'].data_type, 's')
+                self.assertIsNone(sheet['F5'].fill.patternType)
+                self.assertIsNone(sheet['F6'].fill.patternType)
+                workbook.close()
+            page_rows = [r for e in events if e['type'] == 'page' for r in e['rows']]
+            self.assertTrue(all('강조 근거' in r for r in page_rows))
+            self.assertTrue(any('과업: 연구' in r['강조 근거'] for r in page_rows))
+            self.assertEqual(
+                next(r for r in page_rows if r['공고명'] == 'AI 제외')['강조 근거'],
+                '',
+            )
+            self.assertNotIn('강조 근거', records[0])
+
+    def test_failed_collection_preserves_existing_excel(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / 'output'
+            output.mkdir()
+            path = output / '나라장터_20261012_20261014.xlsx'
+            path.write_bytes(b'existing result')
+            events = []
+            def fail(key, first, last, settings, on_page):
+                on_page([{'공고명': '연구'}], 1, 2, 2)
+                raise RuntimeError('second page failed')
+            with patch.object(ui_runner, 'BASE_DIR', root), \
+                 patch.object(ui_runner, 'load_settings', return_value={}), \
+                 patch.object(ui_runner, 'api_keys', return_value={'nara': 'test'}), \
+                 patch.object(ui_runner.nara, 'collect', side_effect=fail):
+                ui_runner.run_ui('2026-10-12', '2026-10-14', '', events.append, ('nara',))
+            self.assertEqual(path.read_bytes(), b'existing result')
+            self.assertFalse(any(e['type'] == 'saved' for e in events))
+            self.assertEqual(events[-1]['failures'], ['nara'])
 
 if __name__=='__main__':
     unittest.main()
