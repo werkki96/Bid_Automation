@@ -11,6 +11,7 @@ import tempfile
 from config import COLUMNS
 from openpyxl import Workbook
 from openpyxl.styles import Border, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from highlighter import highlight_reasons
 
 EXCEL_COLUMNS = COLUMNS + ["강조 근거"]
@@ -57,8 +58,9 @@ def save_excel(path, records, highlight_keywords=None, highlight_rules=None):
                 cell.fill = yellow
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
-    sheet.column_dimensions["E"].width = 70
-    sheet.column_dimensions["K"].width = 80
+    # 컬럼 추가로 위치가 바뀌어도 같은 열에 너비가 적용되도록 이름으로 찾습니다.
+    sheet.column_dimensions[get_column_letter(EXCEL_COLUMNS.index("공고명") + 1)].width = 70
+    sheet.column_dimensions[get_column_letter(EXCEL_COLUMNS.index("강조 근거") + 1)].width = 80
     # 완성된 임시 파일만 교체하여 저장 실패 시 기존 결과 파일을 보호합니다.
     fd, temporary = tempfile.mkstemp(prefix=".tmp_", suffix=".xlsx", dir=target.parent)
     os.close(fd)

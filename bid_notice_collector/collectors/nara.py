@@ -20,6 +20,7 @@ def convert(item, display_name):
     return {
         "공고위치": display_name,
         "공고번호": f"{no}-{order}" if no and order else no,
+        "입찰구분": item.get("cntrctCnclsMthdNm") or "",
         "공고구분": item.get("ntceKindNm") or "",
         "공고일자": item.get("bidNtceDt") or "",
         "공고명": item.get("bidNtceNm") or "",

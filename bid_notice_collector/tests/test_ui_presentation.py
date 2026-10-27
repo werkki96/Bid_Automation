@@ -38,5 +38,5 @@ class PresentationTests(unittest.TestCase):
             self.assertEqual(row['강조 근거'], '지정 키워드: 새주제')
             file = next(e for e in events if e['type'] == 'saved')['path']
             workbook = load_workbook(file)
-            self.assertEqual(workbook.active['E2'].fill.fgColor.rgb, 'FFFFFF00')
+            self.assertEqual(workbook.active['F2'].fill.fgColor.rgb, 'FFFFFF00')
             workbook.close()

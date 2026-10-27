@@ -116,6 +116,7 @@ class CollectorTests(unittest.TestCase):
             records = nara.collect("test-token", date(2026, 10, 12), date(2026, 10, 14), settings)
 
         self.assertEqual([record["공고번호"] for record in records], ["COMPETITIVE-000"])
+        self.assertEqual(records[0]["입찰구분"], "일반경쟁")
 
     def test_d2b_params_and_unavailable_fields(self):
         observed = []
@@ -246,8 +247,8 @@ class CollectorTests(unittest.TestCase):
             sheet = workbook.active
             self.assertEqual([cell.value for cell in sheet[1]], EXCEL_COLUMNS)
             self.assertEqual(sheet.max_row, len(rows) + 1)
-            self.assertEqual(sheet["E2"].value, expected_titles[0])
-            self.assertEqual(sheet["E2"].fill.fgColor.rgb, "FFFFFF00")
+            self.assertEqual(sheet["F2"].value, expected_titles[0])
+            self.assertEqual(sheet["F2"].fill.fgColor.rgb, "FFFFFF00")
             for cell in sheet[1]:
                 self.assertEqual(cell.fill.fgColor.rgb, "FFD9D9D9")
                 self.assertEqual(cell.border.left.style, "thin")
@@ -258,20 +259,20 @@ class CollectorTests(unittest.TestCase):
                     self.assertEqual(cell.border.top.style, "thin")
                     self.assertEqual(cell.border.bottom.style, "thin")
             for index, title in enumerate(expected_titles, 2):
-                cell = sheet.cell(index, 5)
+                cell = sheet.cell(index, 6)
                 self.assertEqual(cell.value or "", title)
                 if highlight_reasons(title, keywords):
                     self.assertEqual(cell.fill.fgColor.rgb, "FFFFFF00")
                     self.assertEqual(cell.fill.patternType, "solid")
                 else:
                     self.assertIsNone(cell.fill.patternType)
-                self.assertIsNone(sheet.cell(index, 6).fill.patternType)
-            formula_text_cell = next(cell for cell in sheet["E"] if cell.value == "=AI()")
+                self.assertIsNone(sheet.cell(index, 7).fill.patternType)
+            formula_text_cell = next(cell for cell in sheet["F"] if cell.value == "=AI()")
             self.assertEqual(formula_text_cell.data_type, "s")
             workbook.close()
             save_excel(path, [{"공고명": "AI"}], [" "])
             workbook = load_workbook(path)
-            self.assertIsNone(workbook.active["E2"].fill.patternType)
+            self.assertIsNone(workbook.active["F2"].fill.patternType)
             workbook.close()
             save_excel(path, [], keywords)
             workbook = load_workbook(path)
@@ -353,11 +354,11 @@ class CollectorTests(unittest.TestCase):
             for path in (nara_file, d2b_file):
                 workbook = load_workbook(path)
                 self.assertEqual(workbook.active.max_row, 2)
-                self.assertIsNone(workbook.active["E2"].fill.patternType)
+                self.assertIsNone(workbook.active["F2"].fill.patternType)
                 self.assertEqual(workbook.active["A1"].fill.fgColor.rgb, "FFD9D9D9")
                 self.assertEqual(workbook.active["A2"].border.left.style, "thin")
                 self.assertEqual(workbook.active["A2"].border.left.color.rgb, "FF000000")
-                self.assertIsNone(workbook.active["K2"].value)
+                self.assertIsNone(workbook.active["L2"].value)
                 workbook.close()
 
 
