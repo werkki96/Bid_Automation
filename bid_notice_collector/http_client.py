@@ -42,18 +42,18 @@ def collect_pages(fetch_one, page_size, label, on_page=None):
         raise RuntimeError(f"{label}: 검색 결과는 존재하지만 첫 페이지가 비어 있습니다.")
     result = list(first)
     pages = (total + page_size - 1) // page_size
-    # UI는 페이지 단위로 먼저 표시합니다. 최종 건수 검증이 끝나기 전까지 저장 완료를 의미하지 않습니다.
+    # 페이지 진행 상황을 먼저 출력한 뒤 공고명을 출력해 수집 흐름을 바로 확인합니다.
+    print(f"  {label}: 검색 결과 {total}건 / {pages}페이지")
     if on_page is not None:
         on_page(first, 1, pages, total)
-    print(f"  {label}: 검색 결과 {total}건 / {pages}페이지")
     for page in range(2, pages + 1):
         _, records = fetch_one(page)
         if not records:
             raise RuntimeError(f"{label}: {page}페이지 응답이 비어 있습니다.")
         result.extend(records)
+        print(f"  {label}: {page}/{pages}페이지 수집")
         if on_page is not None:
             on_page(records, page, pages, total)
-        print(f"  {label}: {page}/{pages}페이지 수집")
     # 건수 불일치는 실패로 처리합니다. 건수가 같아도 개별 공고의 중복 여부까지 보장하지는 않습니다.
     if len(result) != total:
         raise RuntimeError(f"{label}: 수집 누락 또는 중복 가능성 (API {total}건 / 수집 {len(result)}건)")

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -101,6 +102,26 @@ def load_settings(path=None):
         if not isinstance(name, str) or not name.strip():
             raise ValueError(f"{source}.display_name을 설정하세요.")
     return data
+
+
+def save_ui_keywords(include_keywords, exclude_keywords, highlight_keywords, path=None):
+    """Persist keyword values entered by the web or desktop UI."""
+    target = Path(path) if path is not None else BASE_DIR / "settings.json"
+    data = json.loads(target.read_text(encoding="utf-8"))
+    data["include_keywords"] = list(include_keywords)
+    data["exclude_keywords"] = list(exclude_keywords)
+    data["highlight_keywords"] = list(highlight_keywords)
+    fd, temporary = tempfile.mkstemp(prefix=".settings_", suffix=".json", dir=target.parent)
+    os.close(fd)
+    try:
+        Path(temporary).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, target)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def _parse_date(value, label):

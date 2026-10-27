@@ -31,6 +31,16 @@ def convert(item, display_name):
     }
 
 
+def is_private_contract(item):
+    contract_method = (
+        item.get("cntrctCnclsMthdNm")
+        or item.get("cntrctMthdNm")
+        or item.get("cntrctMth")
+        or ""
+    )
+    return "수의" in str(contract_method)
+
+
 def collect(api_key, start_date, end_date, settings, on_page=None):
     page_size = settings["page_size"]
     source_settings = settings["nara"]
@@ -50,6 +60,7 @@ def collect(api_key, start_date, end_date, settings, on_page=None):
             "indstrytyCd": source_settings.get("industry_code", "1169"),
             "bidClseExcpYn": source_settings.get("exclude_closed", "Y"),
         }
+        
         raw = fetch_bytes(API_URL, params)
         try:
             data = json.loads(raw.decode("utf-8-sig"))
@@ -77,8 +88,19 @@ def collect(api_key, start_date, end_date, settings, on_page=None):
 
     # UI에는 원본 API 필드 대신 화면·출력에서 사용하는 공통 컬럼으로 전달합니다.
     def notify_page(items, page, pages, total):
+        rows = [
+            convert(item, source_settings["display_name"])
+            for item in items
+            if not is_private_contract(item)
+        ]
+        for row in rows:
+            print(f"[나라장터] 수집 공고명: {row['공고명']}")
         if on_page is not None:
-            on_page([convert(item, source_settings["display_name"]) for item in items], page, pages, total)
+            on_page(rows, page, pages, total)
 
     raw_records = collect_pages(fetch, page_size, "나라장터", on_page=notify_page)
-    return [convert(row, source_settings["display_name"]) for row in raw_records]
+    return [
+        convert(row, source_settings["display_name"])
+        for row in raw_records
+        if not is_private_contract(row)
+    ]

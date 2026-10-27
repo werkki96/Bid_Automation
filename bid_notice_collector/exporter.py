@@ -26,6 +26,7 @@ def save_excel(path, records, highlight_keywords=None, highlight_rules=None):
     sheet.append(EXCEL_COLUMNS)
     header_fill = PatternFill(fill_type="solid", fgColor="FFD9D9D9")
     yellow = PatternFill(fill_type="solid", fgColor="FFFFFF00")
+    red = PatternFill(fill_type="solid", fgColor="FFFFC7CE")
     cell_border = Border(
         left=Side(style="thin", color="FF000000"),
         right=Side(style="thin", color="FF000000"),
@@ -38,10 +39,10 @@ def save_excel(path, records, highlight_keywords=None, highlight_rules=None):
     highlighted_records = []
     for record in records:
         reasons = highlight_reasons(record.get("공고명"), highlight_keywords, highlight_rules)
-        highlighted_records.append((bool(reasons), record, reasons))
+        highlighted_records.append((bool(record.get("_ui_excluded")), bool(reasons), record, reasons))
     # 안정 정렬: 강조 공고를 위로 모으되 각 그룹 안의 API 수집 순서는 유지합니다.
-    highlighted_records.sort(key=lambda item: not item[0])
-    for _, record, reasons in highlighted_records:
+    highlighted_records.sort(key=lambda item: (item[0], not item[1]))
+    for excluded, _, record, reasons in highlighted_records:
         row = sheet.max_row + 1
         for column, name in enumerate(EXCEL_COLUMNS, 1):
             value = "; ".join(reasons) if name == "강조 근거" else record.get(name)
@@ -51,6 +52,8 @@ def save_excel(path, records, highlight_keywords=None, highlight_rules=None):
             cell.border = cell_border
             if name == "공고명" and reasons:
                 cell.fill = yellow
+            if name == "공고명" and excluded:
+                cell.fill = red
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
     sheet.column_dimensions["E"].width = 70
@@ -68,7 +71,7 @@ def save_excel(path, records, highlight_keywords=None, highlight_rules=None):
 
 
 def filter_keywords(records, keywords, search_columns, include_keywords=None):
-    """Include if ANY inclusion term matches; then exclude if ANY exclusion term matches.
+    """Include if ANY inclusion term matches; exclude matching rows from the result.
 
     An empty include list allows all records through the inclusion phase.
     Matching ignores case and surrounding whitespace.
@@ -88,6 +91,20 @@ def filter_keywords(records, keywords, search_columns, include_keywords=None):
         else:
             kept.append(record)
     return kept, removed
+
+
+def mark_excluded(records, keywords, search_columns):
+    """Mark matching rows for red highlighting without removing them."""
+    return [
+        dict(record, _ui_excluded=matches_keywords(record, keywords, search_columns))
+        for record in records
+    ]
+
+
+def matches_keywords(record, keywords, search_columns):
+    terms = [term.strip().casefold() for term in keywords if term.strip()]
+    haystacks = [str(record.get(name, "") or "").casefold() for name in search_columns]
+    return bool(terms) and any(term in text for term in terms for text in haystacks)
 
 
 def safe_csv_cell(value):

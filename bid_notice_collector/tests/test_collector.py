@@ -75,6 +75,7 @@ class CollectorTests(unittest.TestCase):
                         "bidNtceNm": "학술 연구 용역", "presmptPrce": "1000000",
                         "ntceInsttNm": "A", "dminsttNm": "B",
                         "bidNtceDtlUrl": "https://example.org/detail",
+                        "cntrctCnclsMthdNm": "일반경쟁",
                     }]},
                 },
             }}
@@ -91,6 +92,25 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(params_seen[0]["bidClseExcpYn"], "Y")
         self.assertEqual(params_seen[1]["pageNo"], 2)
 
+    def test_nara_filters_private_contracts(self):
+        def fake_fetch(url, params):
+            obj = {"response": {
+                "header": {"resultCode": "00", "resultMsg": "정상"},
+                "body": {"totalCount": 2, "items": {"item": [
+                    {"bidNtceNo": "COMPETITIVE", "bidNtceOrd": "000",
+                     "bidNtceNm": "경쟁 용역", "cntrctCnclsMthdNm": "일반경쟁"},
+                    {"bidNtceNo": "PRIVATE", "bidNtceOrd": "000",
+                     "bidNtceNm": "수의 용역", "cntrctCnclsMthdNm": "수의계약"},
+                ]},
+            }}}
+            return json.dumps(obj).encode("utf-8")
+
+        settings = {**SETTINGS, "page_size": 100}
+        with patch.object(nara, "fetch_bytes", side_effect=fake_fetch):
+            records = nara.collect("test-token", date(2026, 10, 12), date(2026, 10, 14), settings)
+
+        self.assertEqual([record["공고번호"] for record in records], ["COMPETITIVE-000"])
+
     def test_d2b_params_and_unavailable_fields(self):
         observed = []
         def fake_fetch(url, params):
@@ -99,6 +119,8 @@ class CollectorTests(unittest.TestCase):
             <body><items><item><pblancNo>D200</pblancNo><pblancOdr>001</pblancOdr>
             <bidNm>Project X</bidNm><pblancDate>20261015</pblancDate>
             <ornt>Agency</ornt><pblancSe>Notice</pblancSe>
+            <busiDivs>&#50857;&#50669;</busiDivs>
+            <cntrctMth>&#51228;&#54620;&#44221;&#51137;</cntrctMth>
             <bsicExpt>500000</bsicExpt><bidPartcptRegistClosDt>20261019</bidPartcptRegistClosDt>
             </item></items><totalCount>1</totalCount></body></response>'''
         with patch.object(d2b, "fetch_bytes", side_effect=fake_fetch):
@@ -106,9 +128,28 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(observed[0]["anmtDateBegin"], "20261012")
         self.assertEqual(observed[0]["anmtDateEnd"], "20261014")
         self.assertEqual(records[0]["공고번호"], "D200-001")
-        self.assertEqual(records[0]["추정가격(원)"], "")
+        self.assertEqual(records[0]["추정가격(원)"], "500000")
         self.assertEqual(records[0]["수요기관"], "")
         self.assertEqual(records[0]["상세보기 주소"], d2b.D2B_LIST_URL)
+
+    def test_d2b_filters_non_service_bids(self):
+        def fake_fetch(url, params):
+            return b'''<response><header><resultCode>00</resultCode></header>
+            <body><items>
+            <item><pblancNo>GOODS</pblancNo><pblancOdr>001</pblancOdr>
+            <bidNm>Equipment</bidNm><busiDivs>&#47932;&#54408;</busiDivs></item>
+            <item><pblancNo>SERVICE</pblancNo><pblancOdr>001</pblancOdr>
+            <bidNm>Research</bidNm><busiDivs>&#50857;&#50669;</busiDivs></item>
+            <item><pblancNo>PRIVATE</pblancNo><pblancOdr>001</pblancOdr>
+            <bidNm>Private service</bidNm><busiDivs>&#50857;&#50669;</busiDivs>
+            <cntrctMth>&#49688;&#51032;&#44228;&#50557;</cntrctMth></item>
+            </items><totalCount>3</totalCount></body></response>'''
+
+        settings = {**SETTINGS, "page_size": 100}
+        with patch.object(d2b, "fetch_bytes", side_effect=fake_fetch):
+            records = d2b.collect("test-token", date(2026, 10, 12), date(2026, 10, 14), settings)
+
+        self.assertEqual([record["공고번호"] for record in records], ["SERVICE-001"])
 
     def test_keyword_filter_and_csv_header(self):
         rows = [

@@ -39,7 +39,7 @@ class UITests(unittest.TestCase):
                 ui_runner.run_ui('2026-10-12','2026-10-14','연구',events.append)
             self.assertEqual(len([e for e in events if e['type']=='page']),4)
             self.assertEqual(len([e for e in events if e['type']=='saved']),2)
-            self.assertEqual(sum(len(e['rows']) for e in events if e['type']=='page'),2)
+            self.assertEqual(sum(len(e['rows']) for e in events if e['type']=='page'),4)
             self.assertTrue((root/'output'/'나라장터_20261012_20261014.xlsx').exists())
             self.assertEqual(events[-1],{'type':'done','failures':[]})
 
@@ -68,12 +68,12 @@ class UITests(unittest.TestCase):
             self.assertEqual(len(saved), 2)
             self.assertFalse(list((root / 'output').glob('*.csv')))
             for event in saved:
-                self.assertEqual(event['count'], 4)
+                self.assertEqual(event['count'], 5)
                 workbook = load_workbook(event['path'])
                 sheet = workbook.active
                 self.assertEqual([c.value for c in sheet[1]], EXCEL_COLUMNS)
                 self.assertEqual([c.value for c in sheet['E'][1:]],
-                                 ['AI 구축', '정책 연구', '일반 용역', '=1+1'])
+                                 ['AI 구축', '정책 연구', '일반 용역', '=1+1', 'AI 제외'])
                 self.assertEqual(sheet['E2'].fill.fgColor.rgb, 'FFFFFF00')
                 self.assertEqual(sheet['E3'].fill.fgColor.rgb, 'FFFFFF00')
                 self.assertIsNone(sheet['E4'].fill.patternType)
@@ -82,8 +82,9 @@ class UITests(unittest.TestCase):
                 self.assertEqual(sheet['A1'].fill.fgColor.rgb, 'FFD9D9D9')
                 self.assertEqual(sheet['E2'].border.left.style, 'thin')
                 self.assertEqual(sheet.freeze_panes, 'A2')
-                self.assertEqual(sheet.auto_filter.ref, 'A1:K5')
+                self.assertEqual(sheet.auto_filter.ref, 'A1:K6')
                 self.assertEqual(sheet['E5'].data_type, 's')
+                self.assertEqual(sheet['E6'].fill.fgColor.rgb, 'FFFFC7CE')
                 workbook.close()
             page_rows = [r for e in events if e['type'] == 'page' for r in e['rows']]
             self.assertTrue(all('강조 근거' in r for r in page_rows))

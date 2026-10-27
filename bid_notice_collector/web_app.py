@@ -8,7 +8,7 @@ import threading
 from datetime import timedelta, datetime
 import streamlit as st
 import pandas as pd
-from config import KST
+from config import KST, load_settings, save_ui_keywords
 from exporter import EXCEL_COLUMNS
 from ui_runner import run_ui
 
@@ -16,10 +16,36 @@ st.set_page_config(page_title='입찰공고 통합 검색', layout='wide')
 st.title('입찰공고 통합 검색')
 st.caption('나라장터 학술·연구용역(1169) · D2B 경쟁입찰공고')
 now = datetime.now(KST).date()
+settings = load_settings()
 start = st.date_input('검색 시작일', value=now-timedelta(days=1), key='start')
 end = st.date_input('검색 종료일', value=now, key='end')
-keywords = st.text_input('포함 검색 키워드 (쉼표 구분, OR 검색)', key='keywords')
+keywords = st.text_input(
+    '검색 키워드 (쉼표 구분, OR 검색)',
+    value=', '.join(settings.get('include_keywords', [])),
+    key='keywords',
+)
+exclude_keywords = st.text_input(
+    '제외 표시 키워드 (쉼표 구분, 결과에서 제외하지 않고 빨간색·하단 표시)',
+    value=', '.join(settings.get('exclude_keywords', [])),
+    key='exclude_keywords',
+)
+highlight_keywords = st.text_input(
+    '하이라이트 키워드 (쉼표 구분, 공고명 노란색 표시)',
+    value=', '.join(settings.get('highlight_keywords', [])),
+    key='highlight_keywords',
+)
 sources = st.multiselect('검색 대상', ['나라장터', 'D2B'], default=['나라장터','D2B'])
+if st.button('키워드 저장'):
+    try:
+        from ui_runner import parse_keywords
+        save_ui_keywords(
+            parse_keywords(keywords),
+            parse_keywords(exclude_keywords),
+            parse_keywords(highlight_keywords),
+        )
+        st.success('키워드를 저장했습니다.')
+    except (OSError, ValueError, TypeError) as exc:
+        st.error(f'키워드를 저장하지 못했습니다: {exc}')
 if 'job' not in st.session_state:
     st.session_state.job = None
 if st.button('검색 시작', disabled=bool(st.session_state.job and st.session_state.job['running'])):
@@ -34,7 +60,8 @@ if st.button('검색 시작', disabled=bool(st.session_state.job and st.session_
         selected = tuple('nara' if s=='나라장터' else 'd2b' for s in sources)
         def work():
             try:
-                run_ui(start.isoformat(), end.isoformat(), keywords, events.put, selected)
+                run_ui(start.isoformat(), end.isoformat(), keywords, events.put, selected,
+                       exclude_keywords)
             except Exception as exc:
                 events.put({'type':'error', 'message':str(exc)})
                 events.put({'type':'done', 'failures':['setup']})
@@ -71,13 +98,16 @@ def results():
     st.subheader(f"검색 결과: {len(job['rows'])}건" + (' · 수집 중' if job['running'] else ''))
 
     def style_row(row):
+        if row.get('_ui_excluded'):
+            return ['background-color: #FFC7CE' if col == '공고명' else ''
+                    for col in EXCEL_COLUMNS]
         return ['background-color: #FFFF00' if col == '공고명' and row['강조 근거'] else ''
                 for col in EXCEL_COLUMNS]
 
     source_rows = {
         source: sorted(
             (row for row in job['rows'] if row.get('공고위치') == source),
-            key=lambda row: not bool(row.get('강조 근거')),
+            key=lambda row: (bool(row.get('_ui_excluded')), not bool(row.get('강조 근거'))),
         )
         for source in ('나라장터', '조달청')
     }

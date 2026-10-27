@@ -9,6 +9,9 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+build/
+dist/
 output/*
+~$*.xlsx
 # 빈 결과 폴더를 유지하는 자리표시자만 추적합니다.
 !output/.gitkeep

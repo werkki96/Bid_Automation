@@ -6,7 +6,7 @@
 from pathlib import Path
 from config import BASE_DIR, api_keys, load_settings, resolve_date_range
 from collectors import nara, d2b
-from exporter import filter_keywords, save_excel
+from exporter import filter_keywords, mark_excluded, save_excel
 from highlighter import highlight_reasons
 
 
@@ -17,11 +17,16 @@ def parse_keywords(value):
     return [str(v).strip() for v in value if str(v).strip()]
 
 
-def run_ui(start_date, end_date, keywords, emit, sources=('nara', 'd2b')):
+def run_ui(start_date, end_date, keywords, emit, sources=('nara', 'd2b'),
+           exclude_keywords=None):
     """emit(event_dict) is called in a worker thread. No UI operations here."""
     settings = load_settings()
     first, last = resolve_date_range(settings, start_date, end_date)
     terms = parse_keywords(keywords)
+    configured_ui_excludes = settings.get('exclude_keywords', [])
+    ui_excludes = parse_keywords(
+        configured_ui_excludes if exclude_keywords is None else exclude_keywords
+    )
     keys = api_keys()
     output = (BASE_DIR / settings.get('output_directory', 'output')).resolve()
     if not output.is_relative_to(BASE_DIR.resolve()):
@@ -42,10 +47,12 @@ def run_ui(start_date, end_date, keywords, emit, sources=('nara', 'd2b')):
         def on_page(rows, page, pages, total):
             matched, _ = filter_keywords(
                 rows,
-                settings.get('exclude_keywords', []),
+                [],
                 settings.get('keyword_search_columns', ['공고명']),
                 include_keywords=terms,
             )
+            search_columns = settings.get('keyword_search_columns', ['공고명'])
+            matched = mark_excluded(matched, ui_excludes, search_columns)
             # 화면에도 저장 파일과 같은 규칙의 강조 근거를 전달합니다.
             matched = [dict(row, **{"강조 근거": "; ".join(highlight_reasons(
                 row.get("공고명"), settings.get("highlight_keywords", []),

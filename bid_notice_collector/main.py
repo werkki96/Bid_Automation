@@ -11,7 +11,7 @@ import sys
 
 from config import BASE_DIR, api_keys, load_settings, resolve_date_range
 from collectors import nara, d2b
-from exporter import filter_keywords, save_excel
+from exporter import filter_keywords, mark_excluded, save_excel
 
 
 def run(start_date=None, end_date=None):
@@ -42,17 +42,22 @@ def run(start_date=None, end_date=None):
             continue
         try:
             records = collector(keys[key_name], start, end, settings)
-            # 제외 조건은 강조보다 먼저 적용됩니다. 제외된 공고는 강조 대상이어도 파일에 저장되지 않습니다.
+            # 제외 키워드 공고도 저장하되, 결과에서 붉은색으로 표시합니다.
             kept, removed = filter_keywords(
                 records,
-                settings.get("exclude_keywords", []),
+                [],
                 settings.get("keyword_search_columns", ["공고명"]),
                 include_keywords=settings.get("include_keywords", []),
+            )
+            kept = mark_excluded(
+                kept,
+                settings.get("exclude_keywords", []),
+                settings.get("keyword_search_columns", ["공고명"]),
             )
             destination = output_dir / filename
             save_excel(destination, kept, settings.get("highlight_keywords", []),
                        settings.get("highlight_rules", {}))
-            print(f"  완료: API {len(records)}건 / 키워드 필터 제외 {removed}건 / 저장 {len(kept)}건")
+            print(f"  완료: API {len(records)}건 / 포함조건 제외 {removed}건 / 저장 {len(kept)}건")
             print(f"  결과 파일: {destination}")
         except Exception as exc:
             # One source failing does not stop the other.
