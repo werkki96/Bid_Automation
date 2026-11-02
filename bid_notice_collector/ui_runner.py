@@ -1,13 +1,15 @@
-# 파일 역할: 웹·데스크톱 UI가 공유하는 수집 실행기입니다. 페이지 이벤트 전달, 필터링과 Excel 저장을 담당합니다.
-# 마지막 업데이트: 2026-10-27
+# 파일 역할: 웹·데스크톱 UI가 공유하는 수집 실행기입니다. 페이지 이벤트 전달, 필터링과 저장 버튼용 Excel 저장을 담당합니다.
+# 마지막 업데이트: 2026-11-02
 # 작업자: SMI 장지수
 
 """Shared collection engine for Streamlit and Tkinter, streaming each API page."""
-from pathlib import Path
 from config import BASE_DIR, api_keys, load_settings, resolve_date_range
 from collectors import nara, d2b
-from exporter import filter_keywords, mark_highlight_suppressed, save_excel
+from exporter import filter_keywords, mark_highlight_suppressed, save_excel, save_original_excel
 from highlighter import highlight_reasons
+
+# 저장 파일명에 쓰는 출처 이름입니다. 기존 결과 파일명과 같게 유지합니다.
+SOURCE_LABELS = {'nara': '나라장터', 'd2b': 'D2B'}
 
 
 def parse_keywords(value):
@@ -33,15 +35,12 @@ def run_ui(start_date, end_date, keywords, emit, sources=('nara', 'd2b'),
         else exclude_keywords
     )
     keys = api_keys()
-    output = (BASE_DIR / settings.get('output_directory', 'output')).resolve()
-    if not output.is_relative_to(BASE_DIR.resolve()):
-        raise ValueError('결과물 저장 경로는 프로젝트 내부여야 합니다.')
-    filename_date = f'{first:%Y%m%d}_{last:%Y%m%d}'
-    jobs = [('nara', '나라장터', nara.collect), ('d2b', 'D2B', d2b.collect)]
+    jobs = [('nara', nara.collect), ('d2b', d2b.collect)]
     failures = []
-    for name, label, collector in jobs:
+    for name, collector in jobs:
         if name not in sources:
             continue
+        label = SOURCE_LABELS[name]
         emit({'type':'status', 'source':name, 'message':f'{label} 수집 시작'})
         if not keys.get(name):
             failures.append(name)
@@ -81,12 +80,32 @@ def run_ui(start_date, end_date, keywords, emit, sources=('nara', 'd2b'),
         try:
             # Collectors stream records per page and validate complete retrieval.
             collector(keys[name], first, last, settings, on_page=on_page)
-            path = output / f'{label}_{filename_date}.xlsx'
-            # CLI와 동일한 저장기로 강조·정렬·근거·헤더·테두리·자동필터를 적용합니다.
-            save_excel(path, shown, settings.get("highlight_keywords", []),
-                       settings.get("highlight_rules", {}))
-            emit({'type':'saved', 'source':name, 'path':str(path), 'count':len(shown)})
+            # Excel은 사용자가 저장 버튼을 누를 때 save_ui_results로 저장합니다.
+            emit({'type':'collected', 'source':name, 'count':len(shown)})
         except Exception as exc:
             failures.append(name)
             emit({'type':'error', 'source':name, 'message':f'{type(exc).__name__}: {exc}'})
     emit({'type':'done', 'failures':failures})
+
+
+def save_ui_results(source, rows, start_date, end_date, highlight_keywords=None, original=False):
+    """Save one source's collected rows when the user presses a save button; return the path."""
+    settings = load_settings()
+    # 검색할 때 적용한 UI 강조 키워드로 저장해야 화면과 Excel의 강조가 같습니다.
+    if highlight_keywords is not None:
+        settings = dict(settings, highlight_keywords=list(highlight_keywords))
+    first, last = resolve_date_range(settings, start_date, end_date)
+    output = (BASE_DIR / settings.get('output_directory', 'output')).resolve()
+    if not output.is_relative_to(BASE_DIR.resolve()):
+        raise ValueError('결과물 저장 경로는 프로젝트 내부여야 합니다.')
+    label = SOURCE_LABELS[source]
+    suffix = '_원본' if original else ''
+    path = output / f'{label}{suffix}_{first:%Y%m%d}_{last:%Y%m%d}.xlsx'
+    keywords = settings.get("highlight_keywords", [])
+    rules = settings.get("highlight_rules", {})
+    if original:
+        save_original_excel(path, source, rows, keywords, rules)
+    else:
+        # CLI와 동일한 저장기로 강조·정렬·근거·헤더·테두리·자동필터를 적용합니다.
+        save_excel(path, rows, keywords, rules)
+    return path

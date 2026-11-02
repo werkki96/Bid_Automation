@@ -17,8 +17,10 @@ from urllib.parse import urlparse
 from config import KST, BASE_DIR, default_start_date
 from config import load_settings, save_ui_keywords
 from exporter import EXCEL_COLUMNS
-from ui_runner import parse_keywords, run_ui
+from ui_runner import parse_keywords, run_ui, save_ui_results
 from ui_helpers import format_price
+
+SOURCE_NAMES = {'nara': '나라장터', 'd2b': '국방전자조달'}
 
 class App(tk.Tk):
     def __init__(self):
@@ -46,6 +48,10 @@ class App(tk.Tk):
         self.count_labels = {}
         self.source_status = {'nara': '대기 중', 'd2b': '대기 중'}
         self.saved_files = []
+        # 수집이 끝까지 완료된 출처만 저장할 수 있습니다. 저장은 검색 당시 조건을 사용합니다.
+        self.collected = set()
+        self.search = None
+        self.save_buttons = []
         self._configure_style()
 
         today = datetime.now(KST).date()
@@ -232,6 +238,26 @@ class App(tk.Tk):
         self.count_labels[source] = count
         ttk.Label(heading, textvariable=count, foreground='#1677c8',
                   font=(self.ui_font, 10, 'bold')).pack(side='right')
+
+        # 저장 영역은 왼쪽 절반에 버튼 3개, 오른쪽 절반에 각 버튼 설명을 둡니다.
+        name = SOURCE_NAMES[source]
+        actions = [('모두 저장', ('nara', 'd2b'), False, '나라장터·국방전자조달 결과를 각각 아래 결과 서식 Excel로 저장'),
+                   (f'{name} 저장', (source,), False, f'{name} 아래 결과 서식으로 Excel 저장'),
+                   (f'{name} 원본 저장', (source,), True, f'{name} 사이트에서 내려받는 목록 서식 그대로 저장')]
+        save_area = ttk.Frame(tab)
+        save_area.pack(fill='x', pady=(0, 8))
+        save_area.columnconfigure((0, 1), weight=1, uniform='half')
+        buttons = ttk.Frame(save_area)
+        buttons.grid(row=0, column=0, sticky='nsew', padx=(0, 12))
+        for index, (text, sources, original, _) in enumerate(actions):
+            buttons.columnconfigure(index, weight=1, uniform='button')
+            button = ttk.Button(buttons, text=text, style='Small.TButton', state='disabled',
+                                command=lambda s=sources, o=original: self.save_results(s, o))
+            button.grid(row=0, column=index, sticky='nsew', padx=(0 if index == 0 else 4, 0))
+            self.save_buttons.append((button, sources))
+        buttons.rowconfigure(0, weight=1)
+        ttk.Label(save_area, text='\n'.join(f'• {text}: {help_text}' for text, _, _, help_text in actions),
+                  foreground='#5b6472', font=(self.ui_font, 9), justify='left').grid(row=0, column=1, sticky='w')
 
         frame = ttk.Frame(tab)
         frame.pack(fill='both', expand=True)
@@ -444,11 +470,13 @@ class App(tk.Tk):
             self.count_labels[source].set('0건')
             self.source_status[source] = '대기 중'
         self.saved_files = []
+        self.collected.clear()
         self.selected_cells.clear()
         self.detail_title.set('수집 중입니다. 공고를 선택하면 내용을 확인할 수 있습니다.')
         self.detail_reason.set('노란색은 검토 후보입니다.')
         self._render_results()
         self.running = True
+        self._update_save_buttons()
         self.progress.start(12)
         self.button.config(state='disabled', text='수집 중…')
         self.status.set('수집 시작...')
@@ -456,6 +484,7 @@ class App(tk.Tk):
         search_words = self.keywords.get()
         excluded_words = copy.deepcopy(self.keyword_values['exclude'])
         highlighted_words = list(self.keyword_values['highlight'])
+        self.search = (str(first), str(last), highlighted_words)
         def safe_worker():
             try:
                 run_ui(str(first), str(last), search_words, self.queue.put, sources,
@@ -484,12 +513,12 @@ class App(tk.Tk):
                     f"{'나라장터' if source == 'nara' else 'D2B'} "
                     f"{event['page']}/{event['pages']}페이지 · "
                     f"{len(self.rows[source])}건")
-            elif event['type']=='saved':
+            elif event['type']=='collected':
                 source = event['source']
-                self.source_status[source] = '저장 완료'
-                self.saved_files.append(event['path'])
+                self.collected.add(source)
+                self.source_status[source] = '수집 완료'
                 changed = True
-                self.status.set(f"{'나라장터' if source == 'nara' else 'D2B'} 저장 완료")
+                self.status.set(f"{SOURCE_NAMES[source]} 수집 완료 · 저장 버튼으로 Excel을 저장하세요")
             elif event['type']=='error':
                 source = event.get('source')
                 if source in self.source_status:
@@ -504,10 +533,44 @@ class App(tk.Tk):
                 total = sum(len(rows) for rows in self.rows.values())
                 self.status.set(
                     f"수집 종료 · 화면 표시 {total}건" +
-                    (' (일부 실패)' if event['failures'] else ''))
+                    (' (일부 실패)' if event['failures'] else '') +
+                    (' · 저장 버튼으로 Excel을 저장하세요' if self.collected else ''))
+                self._update_save_buttons()
         if changed:
             self._render_results()
         self.after(150,self.poll)
+
+    def _update_save_buttons(self):
+        for button, sources in self.save_buttons:
+            ready = not self.running and any(source in self.collected for source in sources)
+            button.config(state='normal' if ready else 'disabled')
+
+    def save_results(self, sources, original=False):
+        if self.running or self.search is None:
+            return
+        first, last, highlighted_words = self.search
+        targets = [source for source in sources if source in self.collected]
+        saved = []
+        for source in targets:
+            try:
+                path = save_ui_results(source, self.rows[source], first, last,
+                                       highlighted_words, original=original)
+            except PermissionError:
+                messagebox.showerror('저장 오류', f'{SOURCE_NAMES[source]} Excel 파일이 열려 있습니다.\n'
+                                     '파일을 닫은 뒤 다시 저장하세요.', parent=self)
+                continue
+            except (OSError, ValueError) as exc:
+                messagebox.showerror('저장 오류', f'{SOURCE_NAMES[source]} Excel을 저장하지 못했습니다.\n{exc}', parent=self)
+                continue
+            saved.append(path)
+            if str(path) not in self.saved_files:
+                self.saved_files.append(str(path))
+        if not saved:
+            return
+        skipped = [SOURCE_NAMES[source] for source in sources if source not in self.collected]
+        self.status.set(f"저장 완료 · {', '.join(path.name for path in saved)}" +
+                        (f" · 수집되지 않아 제외: {', '.join(skipped)}" if skipped else ''))
+        self._render_results()
 
 if __name__=='__main__':
     App().mainloop()

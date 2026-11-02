@@ -1,5 +1,5 @@
 # 파일 역할: UI 금액 표시와 저장하지 않은 강조 키워드의 검색 적용을 검증합니다.
-# 마지막 업데이트: 2026-10-27
+# 마지막 업데이트: 2026-11-02
 # 작업자: SMI 장지수
 
 from pathlib import Path
@@ -33,10 +33,11 @@ class PresentationTests(unittest.TestCase):
                  patch.object(ui_runner.nara, 'collect', side_effect=collect):
                 ui_runner.run_ui('2026-10-26', '2026-10-27', '', events.append,
                                  ('nara',), [], ['새주제'])
+                row = next(e for e in events if e['type'] == 'page')['rows'][0]
+                # 저장 버튼도 검색 때 사용한 UI 강조 키워드를 그대로 전달합니다.
+                file = ui_runner.save_ui_results('nara', [row], '2026-10-26', '2026-10-27', ['새주제'])
             self.assertEqual(settings['highlight_keywords'], ['기존단어'])
-            row = next(e for e in events if e['type'] == 'page')['rows'][0]
             self.assertEqual(row['강조 근거'], '지정 키워드: 새주제')
-            file = next(e for e in events if e['type'] == 'saved')['path']
             workbook = load_workbook(file)
             self.assertEqual(workbook.active['F2'].fill.fgColor.rgb, 'FFFFFF00')
             workbook.close()

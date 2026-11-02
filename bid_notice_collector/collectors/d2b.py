@@ -1,11 +1,13 @@
 # 파일 역할: D2B 국내 경쟁입찰 공고를 날짜 범위로 조회하고 XML 응답을 공통 컬럼으로 변환합니다.
-# 마지막 업데이트: 2026-10-23
+# 마지막 업데이트: 2026-11-02
 # 작업자: SMI 장지수
 
 """방위사업청 D2B 용역 경쟁입찰공고 수집."""
 
+import re
 import xml.etree.ElementTree as ET
 from http_client import fetch_bytes, collect_pages
+from ui_helpers import format_price
 
 D2B_LIST_URL = "https://www.d2b.go.kr/psb/bid/serviceBidAnnounceList.do?key=137"
 
@@ -44,6 +46,39 @@ def is_private_contract(item):
     return "수의" in str(item.get("cntrctMth") or "")
 
 
+def dash_datetime(value):
+    # D2B API의 202611021600, 20261027 값을 원본 Excel의 2026-11-02 16:00, 2026-10-27로 바꿉니다.
+    digits = re.sub(r"\D", "", str(value or ""))
+    if len(digits) >= 12:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]} {digits[8:10]}:{digits[10:12]}"
+    if len(digits) == 8:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+    return str(value or "").strip()
+
+
+def original_fields(item):
+    """Values for the D2B website's '입찰공고목록' Excel export."""
+    notice = f"{item.get('pblancNo') or ''}-{item.get('pblancOdr') or ''}".strip("-")
+    decision = item.get("dcsNo") or ""
+    return {
+        # 순번은 저장 시 정렬 순서대로 매깁니다. 이 API는 국내 경쟁입찰 목록입니다.
+        "입찰구분": "경쟁입찰",
+        "공고구분": item.get("pblancSe") or "",
+        "공고일자": dash_datetime(item.get("pblancDate")),
+        "G2B공고번호-차수": " ".join(part for part in (item.get("pblancSe") or "", notice) if part),
+        "통합참조번호": f"{item.get('demandYear') or ''}{item.get('orntCode') or ''}{decision}" if decision else "",
+        "판단번호": decision,
+        "입찰건명": item.get("bidNm") or "",
+        "발주기관": item.get("ornt") or "",
+        "사전심사 마감일시": "",  # 이 목록 API 응답에 없음
+        "입찰참가등록 마감일시": dash_datetime(item.get("bidPartcptRegistClosDt")),
+        "입찰서/견적서제출 마감일시": dash_datetime(item.get("biddocPresentnClosDt")),
+        "계약방법": item.get("cntrctMth") or "",
+        "입찰형태": item.get("bidStle") or "",
+        "기초예가": format_price(item.get("bsicExpt")),
+    }
+
+
 def convert(item, display_name):
     # D2B의 G2B번호가 없는 경우, 자체 공고번호를 사용합니다.
     g2b_no = item.get("g2bPblancNo") or ""
@@ -62,6 +97,8 @@ def convert(item, display_name):
         "추정가격(원)": item.get("bsicExpt") or "",
         "입찰참가등록 마감일시": item.get("bidPartcptRegistClosDt") or "",
         "상세보기 주소": D2B_LIST_URL,  # 개별 공고 링크가 아닌 검색 목록 페이지
+        # 원본 형식 저장용 값입니다. 화면·일반 Excel 컬럼에는 표시하지 않습니다.
+        "_원본": original_fields(item),
     }
 
 

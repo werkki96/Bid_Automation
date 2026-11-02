@@ -304,8 +304,8 @@ Excel의 기존 10개 열 뒤에 **강조 근거** 열이 추가됩니다.
 | `desktop_app.py` | Tkinter 화면에서 조회조건을 입력하고 백그라운드 수집 결과를 표시합니다. |
 | `requirements-build.txt` | Windows EXE 빌드용 PyInstaller와 공통 실행 의존성을 지정합니다. |
 | `requirements-web.txt` | 웹 UI용 Streamlit과 공통 실행 의존성을 지정합니다. |
-| `tests/test_ui.py` | 페이지 이벤트와 UI 공통 실행기의 키워드 필터·Excel 저장을 모의 응답으로 검증합니다. |
-| `ui_runner.py` | 웹·데스크톱 UI가 공유하는 수집 실행기입니다. 페이지 이벤트 전달, 필터링과 Excel 저장을 담당합니다. |
+| `tests/test_ui.py` | 페이지 이벤트와 UI 공통 실행기의 키워드 필터, 저장 버튼용 Excel·원본 형식 저장을 모의 응답으로 검증합니다. |
+| `ui_runner.py` | 웹·데스크톱 UI가 공유하는 수집 실행기입니다. 페이지 이벤트 전달, 필터링과 저장 버튼용 Excel 저장을 담당합니다. |
 | `web_app.py` | Streamlit 화면에서 공고를 조회하고 진행 상태, 표와 Excel 다운로드를 제공합니다. |
 
 `main.py`와 웹·데스크톱 UI는 동일한 저장기로 노란색 강조·근거가 포함된 Excel을 저장합니다. UI의 페이지 이벤트 지원과 EXE 설정 경로 처리를 연결했습니다. 기존 파일의 다른 main 변경(입찰구분 컬럼, D2B 용역 필터)은 이번 파일 추가에 포함하지 않았습니다.

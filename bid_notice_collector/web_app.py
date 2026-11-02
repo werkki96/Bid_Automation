@@ -15,8 +15,10 @@ import streamlit as st
 
 from config import KST, default_start_date, load_settings, save_ui_keywords
 from exporter import EXCEL_COLUMNS
-from ui_runner import parse_keywords, run_ui
+from ui_runner import parse_keywords, run_ui, save_ui_results
 from ui_helpers import format_price
+
+SOURCE_NAMES = {'nara': '나라장터', 'd2b': '국방전자조달'}
 
 st.set_page_config(page_title='SMI | 입찰공고', page_icon='📋', layout='wide')
 st.markdown('''<style>
@@ -142,9 +144,11 @@ if search_clicked:
         selected = tuple('nara' if source == '나라장터' else 'd2b' for source in sources)
         st.session_state.job = {
             'running': True, 'queue': events, 'rows': [], 'by_source': {'nara': [], 'd2b': []},
-            'logs': [], 'files': [], 'errors': [], 'failures': [],
+            'logs': [], 'files': [], 'errors': [], 'failures': [], 'collected': set(),
             'statuses': {source: '대기 중' for source in selected},
             'period': f'{start:%Y.%m.%d} — {end:%Y.%m.%d}',
+            # 저장 버튼은 검색 당시의 기간·강조 키워드로 저장합니다.
+            'search': (start.isoformat(), end.isoformat(), list(st.session_state.web_highlight_keywords)),
         }
         # 작업 스레드에는 검색 순간의 값을 복사해 전달합니다. 화면 상태를 직접 읽지 않습니다.
         args = (start.isoformat(), end.isoformat(), keywords, events.put, selected,
@@ -160,6 +164,26 @@ if search_clicked:
         st.rerun()
 
 
+def save_job_results(job, sources, original):
+    first, last, highlight_keywords = job['search']
+    for source in sources:
+        if source not in job['collected']:
+            continue
+        try:
+            path = save_ui_results(source, job['by_source'].get(source, []), first, last,
+                                   highlight_keywords, original=original)
+        except PermissionError:
+            job['errors'].append(f'{SOURCE_NAMES[source]} Excel 파일이 열려 있습니다. 파일을 닫은 뒤 다시 저장하세요.')
+            continue
+        except (OSError, ValueError) as exc:
+            job['errors'].append(f'{SOURCE_NAMES[source]} Excel 저장 실패: {exc}')
+            continue
+        if str(path) not in job['files']:
+            job['files'].append(str(path))
+        job['logs'].append(f'저장 완료: {path.name}')
+        st.toast(f'저장 완료: {path.name}')
+
+
 @st.fragment(run_every='1s')
 def results():
     job = st.session_state.job
@@ -172,6 +196,8 @@ def results():
         <p>왼쪽에서 조회 기간과 검색 대상을 선택하세요.<br>
         검색어를 비워두면 해당 기간의 전체 공고를 확인할 수 있습니다.</p></div>''', unsafe_allow_html=True)
         return
+    # 코드 갱신 전에 시작한 검색은 저장 버튼 없이 표시합니다.
+    job.setdefault('collected', set())
     completed = False
     while True:
         try:
@@ -185,10 +211,10 @@ def results():
             job['by_source'].setdefault(source, []).extend(event['rows'])
             job['statuses'][source] = f"{event['page']}/{event['pages']}페이지 · {event['matched']}건"
             job['logs'].append(f"{source}: {job['statuses'][source]}")
-        elif typ == 'saved':
-            job['files'].append(event['path'])
-            job['statuses'][source] = '저장 완료'
-            job['logs'].append(f"저장 완료: {Path(event['path']).name} ({event['count']}건)")
+        elif typ == 'collected':
+            job['collected'].add(source)
+            job['statuses'][source] = f"수집 완료 · {event['count']}건"
+            job['logs'].append(f"{SOURCE_NAMES[source]} 수집 완료 ({event['count']}건)")
         elif typ == 'error':
             job['errors'].append(event['message'])
             job['logs'].append('오류: ' + event['message'])
@@ -210,11 +236,11 @@ def results():
     c.metric('저장된 Excel', f"{len(job['files'])}개")
     st.caption(job['period'] + ' · KST')
     if job['running']:
-        st.info('공고를 수집하고 있습니다. 도착한 결과부터 표시하며, 수집 완료 후 Excel이 저장됩니다.')
+        st.info('공고를 수집하고 있습니다. 도착한 결과부터 표시하며, 수집 완료 후 저장 버튼으로 Excel을 저장할 수 있습니다.')
     elif job['failures']:
         st.warning('일부 공고를 수집하지 못했습니다. 아래 오류를 확인한 뒤 다시 검색해 주세요.')
     else:
-        st.success('수집이 완료되었습니다. 강조 공고를 검토하고 Excel을 다운로드하세요.')
+        st.success('수집이 완료되었습니다. 강조 공고를 검토한 뒤 저장 버튼으로 Excel을 저장하세요.')
     for error in job['errors']:
         st.error(error)
     controls = st.columns([2, 1])
@@ -228,6 +254,18 @@ def results():
                 st.caption('이번 검색에서 선택하지 않은 대상입니다.')
                 continue
             source_rows = job['by_source'].get(source, [])
+            name = SOURCE_NAMES[source]
+            # 저장 영역은 왼쪽 절반에 버튼 3개, 오른쪽 절반에 각 버튼 설명을 둡니다.
+            actions = [('모두 저장', ('nara', 'd2b'), False, '나라장터·국방전자조달 결과를 각각 아래 결과 서식 Excel로 저장'),
+                       (f'{name} 저장', (source,), False, f'{name} 아래 결과 서식으로 Excel 저장'),
+                       (f'{name} 원본 저장', (source,), True, f'{name} 사이트에서 내려받는 목록 서식 그대로 저장')]
+            button_half, help_half = st.columns(2, vertical_alignment='center')
+            for col, (label, targets, original, _) in zip(button_half.columns(3), actions):
+                ready = not job['running'] and any(target in job['collected'] for target in targets)
+                if col.button(label, key=f'save_{source}_{label}', disabled=not ready,
+                              use_container_width=True):
+                    save_job_results(job, targets, original)
+            help_half.caption('  \n'.join(f'**{label}**: {help_text}' for label, _, _, help_text in actions))
             rows = [row for row in source_rows if (not highlighted_only or row.get('강조 근거'))
                     and (not find.strip() or find.strip().casefold() in ' '.join(
                         str(row.get(col) or '') for col in ('공고명', '공고기관(발주기관)', '수요기관')).casefold())]
