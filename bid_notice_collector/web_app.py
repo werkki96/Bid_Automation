@@ -1,5 +1,5 @@
 # 파일 역할: 검색 조건, 진행 현황, 강조 공고와 Excel 다운로드를 제공하는 Streamlit 화면입니다.
-# 마지막 업데이트: 2026-10-27
+# 마지막 업데이트: 2026-11-02
 # 작업자: SMI 장지수
 
 """Start with: streamlit run web_app.py"""
@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 import pandas as pd
 import streamlit as st
 
-from config import KST, load_settings, save_ui_keywords
+from config import KST, default_start_date, load_settings, save_ui_keywords
 from exporter import EXCEL_COLUMNS
 from ui_runner import parse_keywords, run_ui
 from ui_helpers import format_price
@@ -46,7 +46,7 @@ now = datetime.now(KST).date()
 st.session_state.setdefault('web_highlight_keywords', list(settings.get('highlight_keywords', [])))
 st.session_state.setdefault('web_exclude_keywords', list(settings.get('exclude_keywords', [])))
 st.session_state.setdefault('job', None)
-st.session_state.setdefault('start', now - timedelta(days=1))
+st.session_state.setdefault('start', default_start_date(now))
 st.session_state.setdefault('end', now)
 running = bool(st.session_state.job and st.session_state.job['running'])
 

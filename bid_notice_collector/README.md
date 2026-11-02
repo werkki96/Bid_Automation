@@ -63,7 +63,7 @@ python main.py
 
 Windows에서 `python` 명령이 작동하지 않으면 `py main.py`를 시도할 수 있습니다.
 
-기본 설정에서는 **실행 시점의 한국시간(KST) 기준 어제부터 오늘까지 (양쪽 날짜 포함)** 조회합니다. 시간별 자르기는 하지 않습니다.
+기본 설정에서는 **실행 시점의 한국시간(KST) 기준 어제부터 오늘까지 (양쪽 날짜 포함)** 조회합니다. 월요일에는 주말 공고까지 포함하도록 **지난 금요일부터 오늘까지** 조회합니다. 시간별 자르기는 하지 않습니다.
 
 - 예: 2026-10-16 실행 → 2026-10-15 ~ 2026-10-16 공고 조회
 - 나라장터 요청은 시작일 `0000`, 종료일 `2359`로 전송합니다.
@@ -148,7 +148,7 @@ output/
 
 - `exclude_keywords`: 문자열은 **OR**, 목록은 **AND** 조건입니다. 일치한 공고는 삭제하지 않고 노란색 하이라이트만 하지 않습니다. UI와 CLI가 같은 설정을 사용하며, `[]`이면 표시하지 않습니다.
 - `keyword_search_columns`: 키워드를 검사할 출력 컬럼. 기본은 **`공고명`만** 검사합니다. 기관명에도 적용하려면 `["공고명", "공고기관(발주기관)", "수요기관"]`로 변경합니다.
-- `date_range.start_date`, `date_range.end_date`: 둘 다 `null`이면 **어제~오늘 자동 조회**, 둘 다 `YYYY-MM-DD`로 입력하면 **지정한 시작일~종료일 조회**. 양 끝 날짜를 모두 포함합니다.
+- `date_range.start_date`, `date_range.end_date`: 둘 다 `null`이면 **어제~오늘 자동 조회(월요일은 금~월)**, 둘 다 `YYYY-MM-DD`로 입력하면 **지정한 시작일~종료일 조회**. 양 끝 날짜를 모두 포함합니다.
 - `page_size`: API 호출당 최대 결과 수 (1~999, 기본 100).
 - `nara.industry_code`: 업종코드 `1169`(학술·연구용역).
 - `nara.exclude_closed`: `Y`면 나라장터 **입찰마감제외** API 조건 사용, `N`이면 사용하지 않음.
@@ -184,7 +184,7 @@ output/
 | 인증키 변경 | `.env` (코드 수정 불필요) |
 | 키워드 추가/삭제 | `settings.json` → `exclude_keywords` |
 | 키워드 검사 대상 변경 | `settings.json` → `keyword_search_columns` |
-| 조회 시작일·종료일 변경 | `settings.json` → `date_range` (`null`/`null` = 어제~오늘) |
+| 조회 시작일·종료일 변경 | `settings.json` → `date_range` (`null`/`null` = 어제~오늘, 월요일은 금~월) |
 | 나라장터 검색 업종/마감 제외 변경 | `settings.json` → `nara` |
 | 표시할 기관명 변경 | `settings.json` → `display_name` |
 | Excel 컬럼 이름/순서 | `config.py` → `COLUMNS`, 각 `collectors/*.py` → `convert` |

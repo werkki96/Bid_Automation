@@ -47,6 +47,15 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(resolve_date_range(custom, now=now),
                          (date(2026, 10, 12), date(2026, 10, 14)))
 
+    def test_monday_default_starts_from_friday(self):
+        # UTC Sun Nov 1 16:00 is Mon Nov 2 01:00 KST; default Fri Oct 30~Mon Nov 2.
+        monday = datetime(2026, 11, 1, 16, 0, tzinfo=timezone.utc)
+        self.assertEqual(resolve_date_range(SETTINGS, now=monday),
+                         (date(2026, 10, 30), date(2026, 11, 2)))
+        tuesday = datetime(2026, 11, 2, 16, 0, tzinfo=timezone.utc)
+        self.assertEqual(resolve_date_range(SETTINGS, now=tuesday),
+                         (date(2026, 11, 2), date(2026, 11, 3)))
+
     def test_invalid_range_validation(self):
         for first, last in [("2026-10-15", None), (None, "2026-10-16"),
                             ("2026-10-18", "2026-10-16"), ("2026-02-30", "2026-03-01")]:

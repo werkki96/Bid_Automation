@@ -1,5 +1,5 @@
 # 파일 역할: 공통 출력 컬럼, 인증키 로딩, 설정 검증과 한국시간(KST) 기준 조회기간 계산을 담당합니다.
-# 마지막 업데이트: 2026-10-23
+# 마지막 업데이트: 2026-11-02
 # 작업자: SMI 장지수
 
 """Configuration and date handling. Standard library only."""
@@ -98,7 +98,7 @@ def load_settings(path=None):
         value = date_settings.get(field)
         if value is not None and not isinstance(value, str):
             raise ValueError(f"date_range.{field}에는 YYYY-MM-DD 문자열 또는 null을 입력하세요.")
-    # Both explicit dates must be set; otherwise the default is yesterday ~ today.
+    # Both explicit dates must be set; otherwise the default is yesterday (Friday on Mondays) ~ today.
     resolve_date_range(data)
     page_size = data.get("page_size", 100)
     if not isinstance(page_size, int) or isinstance(page_size, bool) or not 1 <= page_size <= 999:
@@ -139,12 +139,20 @@ def _parse_date(value, label):
         raise ValueError(f"{label}은 YYYY-MM-DD 형식의 실제 날짜여야 합니다: {value!r}") from exc
 
 
+def default_start_date(today):
+    """Previous business day: Friday on Mondays, otherwise yesterday."""
+    # 월요일에는 주말 사이 등록된 공고까지 보도록 지난 금요일부터 조회합니다.
+    return today - timedelta(days=3 if today.weekday() == 0 else 1)
+
+
 def resolve_date_range(settings, explicit_start=None, explicit_end=None, now=None):
     """Return inclusive (start, end) dates. Defaults to yesterday ~ today in KST.
 
+    On Mondays the default starts from the previous Friday.
+
     Settings may specify both dates (or neither); a CLI override must give both.
     """
-    # 조회기간 우선순위: CLI 날짜 → settings 날짜 → KST 어제~오늘(양끝 포함).
+    # 조회기간 우선순위: CLI 날짜 → settings 날짜 → KST 어제~오늘(월요일은 금~월, 양끝 포함).
     if explicit_start is not None or explicit_end is not None:
         if not explicit_start or not explicit_end:
             raise ValueError("직접 날짜를 지정할 때는 시작일과 종료일을 모두 입력하세요.")
@@ -157,7 +165,7 @@ def resolve_date_range(settings, explicit_start=None, explicit_end=None, now=Non
         if first is None and last is None:
             current = now if now is not None else datetime.now(KST)
             today = current.astimezone(KST).date()
-            return today - timedelta(days=1), today
+            return default_start_date(today), today
         if not first or not last:
             raise ValueError("date_range.start_date와 end_date를 모두 설정하거나 모두 null로 두세요.")
     first_day = _parse_date(first, "시작일")

@@ -1,5 +1,5 @@
 # 파일 역할: Tkinter 화면에서 조회조건을 입력하고 백그라운드 수집 결과를 표시합니다.
-# 마지막 업데이트: 2026-10-27
+# 마지막 업데이트: 2026-11-02
 # 작업자: SMI 장지수
 
 """Desktop app; package with PyInstaller on Windows."""
@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 import tkinter as tk
 from tkinter import ttk, messagebox, font as tkfont
 from urllib.parse import urlparse
-from config import KST, BASE_DIR
+from config import KST, BASE_DIR, default_start_date
 from config import load_settings, save_ui_keywords
 from exporter import EXCEL_COLUMNS
 from ui_runner import parse_keywords, run_ui
@@ -63,7 +63,7 @@ class App(tk.Tk):
         ttk.Label(fields, text='조회 기간 · KST', style='Card.TLabel').grid(row=0, column=0, columnspan=4, sticky='w', pady=(0, 6))
         ttk.Label(fields, text='포함 검색어', style='Card.TLabel').grid(row=0, column=4, columnspan=2, sticky='w', padx=(18, 0), pady=(0, 6))
         self.start = ttk.Entry(fields, width=13)
-        self.start.insert(0, str(today-timedelta(days=1)))
+        self.start.insert(0, str(default_start_date(today)))
         self.start.grid(row=1, column=0, sticky='ew')
         ttk.Label(fields, text=' — ', style='Card.TLabel').grid(row=1, column=1)
         self.end = ttk.Entry(fields, width=13)
