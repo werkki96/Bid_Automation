@@ -301,6 +301,7 @@ Excel의 기존 10개 열 뒤에 **강조 근거** 열이 추가됩니다.
 | `.gitignore` | 저장소 루트의 생성 결과 파일을 Git 추적에서 제외합니다. |
 | `README_UI.md` | 웹·Windows UI의 설치, 실행과 배포 방법을 안내합니다. |
 | `build_exe.bat` | Windows에서 의존성을 설치하고 Tkinter 앱을 단일 EXE로 빌드합니다. |
+| `build_portable.bat`, `build_portable.ps1` | Python 미설치·스마트 앱 컨트롤 PC용으로 서명된 python.org 런타임을 포함한 포터블 zip을 만듭니다. |
 | `desktop_app.py` | Tkinter 화면에서 조회조건을 입력하고 백그라운드 수집 결과를 표시합니다. |
 | `requirements-build.txt` | Windows EXE 빌드용 PyInstaller와 공통 실행 의존성을 지정합니다. |
 | `requirements-web.txt` | 웹 UI용 Streamlit과 공통 실행 의존성을 지정합니다. |

@@ -36,6 +36,18 @@ Windows PC에서 Python 3.10 이상으로 프로젝트 폴더에 들어가 `buil
 
 **배포할 때는 EXE 외에 `settings.json`과 `.env`를 EXE와 같은 폴더에 배치**합니다. `.env`에는 해당 사용자의 API 키가 있어야 합니다. `output/`은 자동 생성됩니다. 외부 인증키를 EXE 내부에 넣지 않습니다. 윈도우 PC에서 빌드해야 Windows EXE가 생성됩니다. 해당 PC의 방화벽 및 인터넷 연결이 필요합니다.
 
+> PyInstaller EXE는 코드 서명이 없어 **스마트 앱 컨트롤(SAC)이 켜진 PC에서는 차단**됩니다. 빌드할 때마다 파일이 바뀌어 평판이 쌓이지 않으므로 아이콘 등과 무관하게 차단될 수 있습니다. 이런 PC에는 아래 포터블 배포본을 사용합니다.
+
+## Windows 포터블 배포본 (Python 미설치 PC, SAC 대응)
+
+`build_portable.bat`를 실행하면 `dist/BidNoticeCollector_portable.zip`이 만들어집니다. 빌드 PC에는 Python과 인터넷 연결만 있으면 되고, PyInstaller는 필요 없습니다.
+
+- python.org 임베디드 Python(`build_portable.ps1`의 `$PyVersion`)에 Tcl/Tk(tkinter)와 `requirements.txt` 의존성을 넣은 `runtime/`, 앱 소스 `app/`, 그리고 `settings.json`·`.env`·`output/`을 한 폴더로 묶습니다.
+- 사용자는 zip을 풀고 **`BidNoticeCollector 실행.bat`**을 더블클릭합니다. Python 설치가 필요 없습니다.
+- 실제로 실행되는 프로그램은 Python Software Foundation이 서명한 `pythonw.exe`이므로 SAC·SmartScreen이 차단하지 않습니다.
+- 인터넷에서 받은 zip은 풀기 전에 **우클릭 → 속성 → `차단 해제`**를 체크하면 .bat 실행 시 보안 경고도 뜨지 않습니다. 사내 공유폴더나 USB로 전달하면 이 과정이 필요 없습니다.
+- 설정 폴더는 실행 .bat이 지정하는 `BID_NOTICE_HOME`(배포 폴더 최상위)을 따릅니다.
+
 ## 핵심 파일
 - `ui_runner.py`: 공통 실행기, 포함/제외 키워드 판정, 페이지 이벤트, 저장 버튼용 Excel·원본 형식 저장
 - `web_app.py`: Streamlit 인터페이스

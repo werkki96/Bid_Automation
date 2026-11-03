@@ -1,5 +1,5 @@
 # 파일 역할: 공통 출력 컬럼, 인증키 로딩, 설정 검증과 한국시간(KST) 기준 조회기간 계산을 담당합니다.
-# 마지막 업데이트: 2026-11-02
+# 마지막 업데이트: 2026-11-03
 # 작업자: SMI 장지수
 
 """Configuration and date handling. Standard library only."""
@@ -13,7 +13,13 @@ from pathlib import Path
 from urllib.parse import unquote
 
 # 일반 실행은 소스 파일 옆, PyInstaller EXE는 실행 파일 옆의 설정·인증키를 사용합니다.
-BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+# 포터블 배포는 실행 .bat이 BID_NOTICE_HOME으로 배포 폴더 최상위를 지정합니다.
+if os.environ.get("BID_NOTICE_HOME"):
+    BASE_DIR = Path(os.environ["BID_NOTICE_HOME"]).resolve()
+elif getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent
 KST = timezone(timedelta(hours=9))
 
 # 두 API가 공유하는 원본 출력 순서입니다. Excel에서는 exporter가 강조 근거 열을 덧붙입니다.
