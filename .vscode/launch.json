@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Streamlit: 입찰공고 웹 UI",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "streamlit",
+            "args": [
+                "run",
+                "${workspaceFolder}/bid_notice_collector/web_app.py"
+            ],
+            "cwd": "${workspaceFolder}/bid_notice_collector",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}
