@@ -42,8 +42,18 @@ def is_service_bid(item):
     return (item.get("busiDivs") or "").strip() == "용역"
 
 
-def is_private_contract(item):
-    return "수의" in str(item.get("cntrctMth") or "")
+# 수의계약·지명계약(지명경쟁)과 취소공고는 수집 결과에서 제외합니다.
+EXCLUDED_CONTRACT_WORDS = ("수의", "지명")
+EXCLUDED_NOTICE_WORDS = ("취소",)
+
+
+def is_excluded(item):
+    contract_method = str(item.get("cntrctMth") or "")
+    notice_kind = str(item.get("pblancSe") or "")
+    return (
+        any(word in contract_method for word in EXCLUDED_CONTRACT_WORDS)
+        or any(word in notice_kind for word in EXCLUDED_NOTICE_WORDS)
+    )
 
 
 def dash_datetime(value):
@@ -141,7 +151,7 @@ def collect(api_key, start_date, end_date, settings, on_page=None):
     def filter_service(items):
         return [
             item for item in items
-            if is_service_bid(item) and not is_private_contract(item)
+            if is_service_bid(item) and not is_excluded(item)
         ]
 
     def notify_service_page(items, page, pages, total):

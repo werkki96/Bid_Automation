@@ -13,7 +13,7 @@ from config import COLUMNS, KST
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from highlighter import highlight_reasons
+from highlighter import highlight_reasons, normalize
 
 EXCEL_COLUMNS = COLUMNS + ["강조 근거"]
 
@@ -186,10 +186,27 @@ def filter_keywords(records, keywords, search_columns, include_keywords=None):
     return kept, removed
 
 
-def mark_highlight_suppressed(records, keywords, search_columns):
-    """Mark rows whose highlight should be suppressed without removing them."""
+def matches_exception(record, exceptions, search_columns):
+    # 띄어쓰기와 관계없이 비교합니다. 예: '법령 정비'와 '법령정비'
+    haystacks = [normalize(record.get(name, "")) for name in search_columns]
+    return any(
+        normalize(term) and normalize(term) in text
+        for term in exceptions or []
+        for text in haystacks
+    )
+
+
+def mark_highlight_suppressed(records, keywords, search_columns, exceptions=None):
+    """Mark rows whose highlight should be suppressed without removing them.
+
+    A row that matches an exception term keeps its highlight even if it matches an exclusion.
+    """
     return [
-        dict(record, _highlight_suppressed=matches_exclusion(record, keywords, search_columns))
+        dict(
+            record,
+            _highlight_suppressed=matches_exclusion(record, keywords, search_columns)
+            and not matches_exception(record, exceptions, search_columns),
+        )
         for record in records
     ]
 

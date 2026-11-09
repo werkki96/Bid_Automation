@@ -53,6 +53,7 @@ def run(start_date=None, end_date=None):
                 kept,
                 settings.get("exclude_keywords", []),
                 settings.get("keyword_search_columns", ["공고명"]),
+                settings.get("exclude_exceptions", []),
             )
             destination = output_dir / filename
             save_excel(destination, kept, settings.get("highlight_keywords", []),

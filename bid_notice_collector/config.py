@@ -83,6 +83,9 @@ def load_settings(path=None):
         raise ValueError("highlight_keywords에는 문자열 목록을 입력해야 합니다.")
     if not isinstance(includes, list) or any(not isinstance(x, str) for x in includes):
         raise ValueError("include_keywords에는 문자열 목록을 입력해야 합니다.")
+    exceptions = data.get("exclude_exceptions", [])
+    if not isinstance(exceptions, list) or any(not isinstance(x, str) for x in exceptions):
+        raise ValueError("exclude_exceptions에는 문자열 목록을 입력해야 합니다.")
     keywords = data.get("exclude_keywords", [])
     search_fields = data.get("keyword_search_columns", ["공고명"])
     if not isinstance(keywords, list) or any(

@@ -16,7 +16,9 @@ from openpyxl import load_workbook
 from exporter import (
     EXCEL_COLUMNS,
     filter_keywords,
+    mark_highlight_suppressed,
     matches_exclusion,
+    rank_highlighted,
     save_csv,
     save_excel,
 )
@@ -107,15 +109,19 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(params_seen[0]["bidClseExcpYn"], "Y")
         self.assertEqual(params_seen[1]["pageNo"], 2)
 
-    def test_nara_filters_private_contracts(self):
+    def test_nara_filters_excluded_notices(self):
         def fake_fetch(url, params):
             obj = {"response": {
                 "header": {"resultCode": "00", "resultMsg": "정상"},
-                "body": {"totalCount": 2, "items": {"item": [
+                "body": {"totalCount": 4, "items": {"item": [
                     {"bidNtceNo": "COMPETITIVE", "bidNtceOrd": "000",
                      "bidNtceNm": "경쟁 용역", "cntrctCnclsMthdNm": "일반경쟁"},
                     {"bidNtceNo": "PRIVATE", "bidNtceOrd": "000",
                      "bidNtceNm": "수의 용역", "cntrctCnclsMthdNm": "수의계약"},
+                    {"bidNtceNo": "NOMINATED", "bidNtceOrd": "000",
+                     "bidNtceNm": "지명 용역", "cntrctCnclsMthdNm": "지명경쟁"},
+                    {"bidNtceNo": "CANCELED", "bidNtceOrd": "000", "ntceKindNm": "취소공고",
+                     "bidNtceNm": "취소 용역", "cntrctCnclsMthdNm": "일반경쟁"},
                 ]},
             }}}
             return json.dumps(obj).encode("utf-8")
@@ -159,7 +165,13 @@ class CollectorTests(unittest.TestCase):
             <item><pblancNo>PRIVATE</pblancNo><pblancOdr>001</pblancOdr>
             <bidNm>Private service</bidNm><busiDivs>&#50857;&#50669;</busiDivs>
             <cntrctMth>&#49688;&#51032;&#44228;&#50557;</cntrctMth></item>
-            </items><totalCount>3</totalCount></body></response>'''
+            <item><pblancNo>NOMINATED</pblancNo><pblancOdr>001</pblancOdr>
+            <bidNm>Nominated service</bidNm><busiDivs>&#50857;&#50669;</busiDivs>
+            <cntrctMth>&#51648;&#47749;&#44221;&#51137;</cntrctMth></item>
+            <item><pblancNo>CANCELED</pblancNo><pblancOdr>001</pblancOdr>
+            <bidNm>Canceled service</bidNm><busiDivs>&#50857;&#50669;</busiDivs>
+            <pblancSe>&#52712;&#49548;&#44277;&#44256;</pblancSe></item>
+            </items><totalCount>5</totalCount></body></response>'''
 
         settings = {**SETTINGS, "page_size": 100}
         with patch.object(d2b, "fetch_bytes", side_effect=fake_fetch):
@@ -325,6 +337,40 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(highlight_reasons(
             "AI 구축", rules=rules, issuer="일반 연구원"
         ), [])
+        # 지자체 이름의 '군'은 국방기관으로 보지 않습니다.
+        for issuer in ("인천광역시 강화군", "전북특별자치도 장수군", "군포도시공사", "사단법인 연구원"):
+            with self.subTest(issuer=issuer):
+                self.assertEqual(highlight_reasons("타당성 조사 용역", rules=rules, issuer=issuer), [])
+        for issuer in ("해군군수사령부", "국군재정관리단", "수도군단", "제9691부대", "제20전투비행단"):
+            with self.subTest(issuer=issuer):
+                self.assertTrue(highlight_reasons("타당성 조사 용역", rules=rules, issuer=issuer))
+
+    def test_configured_highlight_suppression_and_exceptions(self):
+        settings = load_settings()
+        cases = {
+            ("AI 시제품 개발·제작 지원 플랫폼 구축 용역", "정보통신산업진흥원"): True,
+            ("국방보안체계 정립을 위한 법령정비 방안 연구", "국방부"): True,
+            ("지역 뿌리기업 AI 활용 역량 강화 교육과정 개발 및 운영 용역", "한국산업기술진흥원"): False,
+            ("강화군 제2국민체육센터 건립 타당성 조사 용역", "인천광역시 강화군"): False,
+            ("국방 장비 정비 연구", "국방부"): False,
+        }
+        rows = mark_highlight_suppressed(
+            [{"공고명": title, "공고기관(발주기관)": issuer} for title, issuer in cases],
+            settings["exclude_keywords"],
+            settings["keyword_search_columns"],
+            settings["exclude_exceptions"],
+        )
+        ranked = rank_highlighted(rows, settings["highlight_keywords"], settings["highlight_rules"])
+        actual = {(row["공고명"], row["공고기관(발주기관)"]): bool(reasons) for row, reasons in ranked}
+        self.assertEqual(actual, cases)
+
+    def test_exclude_exceptions_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "settings.json"
+            for invalid in ("법령정비", [1]):
+                path.write_text(json.dumps({**SETTINGS, "exclude_exceptions": invalid}), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "exclude_exceptions"):
+                    load_settings(path)
 
     def test_highlight_rules_validation(self):
         with tempfile.TemporaryDirectory() as tmp:

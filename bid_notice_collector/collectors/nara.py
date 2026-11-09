@@ -59,14 +59,23 @@ def convert(item, display_name):
     }
 
 
-def is_private_contract(item):
-    contract_method = (
+# 수의계약·지명계약(지명경쟁)과 취소공고는 수집 결과에서 제외합니다.
+EXCLUDED_CONTRACT_WORDS = ("수의", "지명")
+EXCLUDED_NOTICE_WORDS = ("취소",)
+
+
+def is_excluded(item):
+    contract_method = str(
         item.get("cntrctCnclsMthdNm")
         or item.get("cntrctMthdNm")
         or item.get("cntrctMth")
         or ""
     )
-    return "수의" in str(contract_method)
+    notice_kind = str(item.get("ntceKindNm") or "")
+    return (
+        any(word in contract_method for word in EXCLUDED_CONTRACT_WORDS)
+        or any(word in notice_kind for word in EXCLUDED_NOTICE_WORDS)
+    )
 
 
 def collect(api_key, start_date, end_date, settings, on_page=None):
@@ -119,7 +128,7 @@ def collect(api_key, start_date, end_date, settings, on_page=None):
         rows = [
             convert(item, source_settings["display_name"])
             for item in items
-            if not is_private_contract(item)
+            if not is_excluded(item)
         ]
         for row in rows:
             print(f"[나라장터] 수집 공고명: {row['공고명']}")
@@ -130,5 +139,5 @@ def collect(api_key, start_date, end_date, settings, on_page=None):
     return [
         convert(row, source_settings["display_name"])
         for row in raw_records
-        if not is_private_contract(row)
+        if not is_excluded(row)
     ]

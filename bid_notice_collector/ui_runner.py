@@ -56,7 +56,9 @@ def run_ui(start_date, end_date, keywords, emit, sources=('nara', 'd2b'),
                 include_keywords=terms,
             )
             search_columns = settings.get('keyword_search_columns', ['공고명'])
-            matched = mark_highlight_suppressed(matched, ui_excludes, search_columns)
+            matched = mark_highlight_suppressed(
+                matched, ui_excludes, search_columns, settings.get('exclude_exceptions', []),
+            )
             # 화면에도 저장 파일과 같은 규칙의 강조 근거를 전달합니다.
             matched = [
                 dict(
