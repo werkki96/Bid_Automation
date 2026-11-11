@@ -12,6 +12,12 @@ from http_client import collect_pages
 from openpyxl import load_workbook
 from exporter import EXCEL_COLUMNS
 
+from openpyxl.utils import get_column_letter
+# 컬럼이 추가돼도 같은 열을 검사하도록 위치를 이름으로 계산합니다.
+TITLE_COL = get_column_letter(EXCEL_COLUMNS.index("공고명") + 1)
+REASON_COL = get_column_letter(EXCEL_COLUMNS.index("강조 근거") + 1)
+LAST_COL = get_column_letter(len(EXCEL_COLUMNS))
+
 class UITests(unittest.TestCase):
     def test_pages_stream_in_order(self):
         emitted=[]
@@ -81,20 +87,20 @@ class UITests(unittest.TestCase):
                 workbook = load_workbook(path)
                 sheet = workbook.active
                 self.assertEqual([c.value for c in sheet[1]], EXCEL_COLUMNS)
-                self.assertEqual([c.value for c in sheet['F'][1:]],
+                self.assertEqual([c.value for c in sheet[TITLE_COL][1:]],
                                  ['AI 연구', '일반 용역', '정책 연구', 'AI 제외', '=1+1'])
-                self.assertEqual(sheet['F2'].fill.fgColor.rgb, 'FFFFFF00')
-                self.assertIsNone(sheet['F3'].fill.patternType)
-                self.assertIsNone(sheet['F4'].fill.patternType)
-                self.assertEqual(sheet['L2'].value, '지정 키워드: AI; 과업: 연구')
-                self.assertIsNone(sheet['L3'].value)
+                self.assertEqual(sheet[f'{TITLE_COL}2'].fill.fgColor.rgb, 'FFFFFF00')
+                self.assertIsNone(sheet[f'{TITLE_COL}3'].fill.patternType)
+                self.assertIsNone(sheet[f'{TITLE_COL}4'].fill.patternType)
+                self.assertEqual(sheet[f'{REASON_COL}2'].value, '지정 키워드: AI; 과업: 연구')
+                self.assertIsNone(sheet[f'{REASON_COL}3'].value)
                 self.assertEqual(sheet['A1'].fill.fgColor.rgb, 'FFD9D9D9')
-                self.assertEqual(sheet['F2'].border.left.style, 'thin')
+                self.assertEqual(sheet[f'{TITLE_COL}2'].border.left.style, 'thin')
                 self.assertEqual(sheet.freeze_panes, 'A2')
-                self.assertEqual(sheet.auto_filter.ref, 'A1:L6')
-                self.assertEqual(sheet['F5'].data_type, 's')
-                self.assertIsNone(sheet['F5'].fill.patternType)
-                self.assertIsNone(sheet['F6'].fill.patternType)
+                self.assertEqual(sheet.auto_filter.ref, f'A1:{LAST_COL}6')
+                self.assertEqual(sheet[f'{TITLE_COL}5'].data_type, 's')
+                self.assertIsNone(sheet[f'{TITLE_COL}5'].fill.patternType)
+                self.assertIsNone(sheet[f'{TITLE_COL}6'].fill.patternType)
                 workbook.close()
             page_rows = [r for e in events if e['type'] == 'page' for r in e['rows']]
             self.assertTrue(all('강조 근거' in r for r in page_rows))

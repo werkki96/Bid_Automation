@@ -1,5 +1,5 @@
 # 파일 역할: 검색 조건, 진행 현황, 강조 공고와 Excel 다운로드를 제공하는 Streamlit 화면입니다.
-# 마지막 업데이트: 2026-11-02
+# 마지막 업데이트: 2026-11-11
 # 작업자: SMI 장지수
 
 """Start with: streamlit run web_app.py"""
@@ -15,8 +15,9 @@ import streamlit as st
 
 from config import KST, default_start_date, load_settings, save_ui_keywords
 from exporter import EXCEL_COLUMNS
-from ui_runner import parse_keywords, run_ui, save_ui_results
+from ui_runner import parse_keywords, run_ui, save_ui_results, search_openings
 from ui_helpers import format_price
+from collectors import nara_opening
 
 SOURCE_NAMES = {'nara': '나라장터', 'd2b': '국방전자조달'}
 
@@ -50,6 +51,9 @@ st.session_state.setdefault('web_exclude_keywords', list(settings.get('exclude_k
 st.session_state.setdefault('job', None)
 st.session_state.setdefault('start', default_start_date(now))
 st.session_state.setdefault('end', now)
+st.session_state.setdefault('opening_start', now - timedelta(days=6))
+st.session_state.setdefault('opening_end', now)
+st.session_state.setdefault('opening_rows', None)
 running = bool(st.session_state.job and st.session_state.job['running'])
 
 
@@ -93,6 +97,59 @@ def edit_exclude_keywords():
         st.rerun()
 
 
+def set_opening_period(days):
+    today = datetime.now(KST).date()
+    st.session_state.opening_start = today - timedelta(days=days - 1)
+    st.session_state.opening_end = today
+
+
+@st.dialog('나라장터 개찰결과 조회', width='large')
+def opening_results_dialog():
+    industry = settings['nara'].get('industry_code', '1169')
+    quick = st.columns(3)
+    for col, label, days in zip(quick, ['오늘', '최근 7일', '최근 30일'], [1, 7, 30]):
+        col.button(label, key=f'opening_period_{days}', on_click=set_opening_period, args=(days,),
+                   use_container_width=True)
+    dates = st.columns(2)
+    first = dates[0].date_input('개찰일 시작', key='opening_start')
+    last = dates[1].date_input('개찰일 종료', key='opening_end')
+    industry_only = st.checkbox(f'학술·연구용역({industry})만', value=True, key='opening_industry_only')
+    st.caption('KST · 시작일과 종료일 포함 · 7일보다 긴 기간은 7일씩 나누어 조회합니다.')
+    if st.button('개찰결과 조회', type='primary', use_container_width=True, key='opening_search'):
+        if first > last:
+            st.error('시작일은 종료일보다 늦을 수 없습니다.')
+        else:
+            try:
+                with st.spinner('개찰결과를 조회하고 있습니다...'):
+                    st.session_state.opening_rows = search_openings(first, last, industry_only)
+                st.session_state.opening_period = f'{first:%Y.%m.%d} — {last:%Y.%m.%d}'
+            except Exception as exc:
+                st.session_state.opening_rows = None
+                st.error(f'개찰결과 조회 실패: {exc}')
+    rows = st.session_state.opening_rows
+    if rows is None:
+        st.info('개찰일을 정하고 조회하세요.')
+        return
+    query = st.text_input('검색어', key='opening_query', placeholder='공고명·기관·1순위 업체 · 쉼표로 여러 단어(하나라도 포함)')
+    shown = [row for row in rows if nara_opening.matches(row, query)]
+    st.caption(f"{st.session_state.get('opening_period', '')} · 전체 {len(rows):,}건 중 {len(shown):,}건 표시"
+               ' · 회색: 유찰')
+    if not shown:
+        st.info('표시할 개찰결과가 없습니다.')
+        return
+    frame = pd.DataFrame(shown, columns=nara_opening.COLUMNS).fillna('')
+
+    def style_row(row):
+        color = 'color: #8a94a3' if row['진행상태'] == '유찰' else ''
+        return [color for _ in nara_opening.COLUMNS]
+
+    st.dataframe(frame.style.apply(style_row, axis=1), column_order=nara_opening.COLUMNS,
+                 column_config={'공고명': st.column_config.TextColumn(width='large'),
+                                '상세보기 주소': st.column_config.LinkColumn(
+                                    '상세보기', display_text='공고 열기', validate=r'^https?://.+')},
+                 height=480, use_container_width=True, hide_index=True)
+
+
 with st.sidebar:
     st.markdown('### SMI · 공고 검색')
     st.caption('조건 설정 → 공고 검토 → Excel 저장')
@@ -128,6 +185,11 @@ with st.sidebar:
         except (OSError, ValueError, TypeError) as exc:
             st.error(f'저장 실패: {exc}')
     st.caption('편집한 조건은 다음 검색에 적용됩니다. 기본값 저장은 선택 사항입니다.')
+    st.divider()
+    st.markdown('#### 나라장터 개찰결과')
+    if st.button('개찰결과 조회', use_container_width=True, key='open_opening_dialog'):
+        opening_results_dialog()
+    st.caption('개찰일과 검색어로 나라장터 개찰결과를 찾습니다.')
     st.divider()
 
 st.markdown('''<div class="smi-hero"><small>SMI · BID NOTICE WORKSPACE</small>

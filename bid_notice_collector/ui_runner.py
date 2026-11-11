@@ -1,10 +1,10 @@
 # 파일 역할: 웹·데스크톱 UI가 공유하는 수집 실행기입니다. 페이지 이벤트 전달, 필터링과 저장 버튼용 Excel 저장을 담당합니다.
-# 마지막 업데이트: 2026-11-02
+# 마지막 업데이트: 2026-11-11
 # 작업자: SMI 장지수
 
 """Shared collection engine for Streamlit and Tkinter, streaming each API page."""
 from config import BASE_DIR, api_keys, load_settings, resolve_date_range
-from collectors import nara, d2b
+from collectors import nara, d2b, nara_opening
 from exporter import filter_keywords, mark_highlight_suppressed, save_excel, save_original_excel
 from highlighter import highlight_reasons
 
@@ -111,3 +111,17 @@ def save_ui_results(source, rows, start_date, end_date, highlight_keywords=None,
         # CLI와 동일한 저장기로 강조·정렬·근거·헤더·테두리·자동필터를 적용합니다.
         save_excel(path, rows, keywords, rules)
     return path
+
+
+def search_openings(start_date, end_date, industry_only=True, on_page=None):
+    """Fetch G2B opening results for the inclusive date range (datetime.date values).
+
+    industry_only=True limits results to the configured G2B industry code (학술·연구용역 1169).
+    """
+    settings = load_settings()
+    key = api_keys().get('nara')
+    if not key:
+        raise ValueError('NARA_API_KEY 또는 API_KEY를 .env에 설정하세요.')
+    industry = settings['nara'].get('industry_code', '1169') if industry_only else None
+    return nara_opening.collect(key, start_date, end_date, industry,
+                                settings.get('page_size', 100), on_page=on_page)

@@ -1,5 +1,5 @@
 # 파일 역할: 나라장터 용역 공고를 날짜·업종·마감 조건으로 조회하고 JSON 응답을 공통 컬럼으로 변환합니다.
-# 마지막 업데이트: 2026-11-02
+# 마지막 업데이트: 2026-11-11
 # 작업자: SMI 장지수
 
 """나라장터(G2B) 학술·연구용역 입찰공고 수집."""
@@ -38,6 +38,45 @@ def original_fields(item, number):
     }
 
 
+def evaluation_ratio(item):
+    # 협상에 의한 계약 공고만 기술능력:입찰가격 평가 비율이 있습니다. 예: 90:10
+    tech = str(item.get("techAbltEvlRt") or "").strip()
+    price = str(item.get("bidPrceEvlRt") or "").strip()
+    return f"{tech}:{price}" if tech and price else ""
+
+
+def parse_page(raw, label="나라장터"):
+    """Return (totalCount, items) from a G2B JSON response; one item may arrive as an object."""
+    try:
+        data = json.loads(raw.decode("utf-8-sig"))
+        # 기간 초과 등 요청 오류는 response 대신 오류 객체로 옵니다.
+        error = next((value for key, value in data.items() if key.endswith("ResponseError")), None)
+        if error is not None:
+            header = error.get("header", {})
+            raise RuntimeError(f"{label} API 오류: {header.get('resultCode')} / {header.get('resultMsg')}")
+        response = data["response"]
+        header = response["header"]
+        if str(header.get("resultCode", "")) not in ("00", "0"):
+            raise RuntimeError(f"{label} API 오류: {header.get('resultCode')} / {header.get('resultMsg')}")
+        body = response["body"]
+        count = int(body["totalCount"])
+        # 응답의 items/item이 목록 또는 단일 객체인 경우를 모두 목록으로 통일합니다.
+        container = body.get("items") or {}
+        if isinstance(container, dict):
+            records = container.get("item") or []
+        elif isinstance(container, list):
+            records = container
+        else:
+            records = []
+        if isinstance(records, dict):
+            records = [records]
+        if not isinstance(records, list):
+            raise ValueError("item의 자료형이 예상과 다릅니다.")
+        return count, records
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise RuntimeError(f"{label} API 응답 형식 확인 필요 (JSON 구조/인증키 확인)") from exc
+
+
 def convert(item, display_name):
     no = str(item.get("bidNtceNo") or "").strip()
     order = str(item.get("bidNtceOrd") or "").strip()
@@ -46,6 +85,7 @@ def convert(item, display_name):
         "공고위치": display_name,
         "공고번호": number,
         "입찰구분": item.get("cntrctCnclsMthdNm") or "",
+        "평가비율(기술:가격)": evaluation_ratio(item),
         "공고구분": item.get("ntceKindNm") or "",
         "공고일자": item.get("bidNtceDt") or "",
         "공고명": item.get("bidNtceNm") or "",
@@ -98,30 +138,7 @@ def collect(api_key, start_date, end_date, settings, on_page=None):
             "bidClseExcpYn": source_settings.get("exclude_closed", "Y"),
         }
         
-        raw = fetch_bytes(API_URL, params)
-        try:
-            data = json.loads(raw.decode("utf-8-sig"))
-            response = data["response"]
-            header = response["header"]
-            if str(header.get("resultCode", "")) not in ("00", "0"):
-                raise RuntimeError(f"나라장터 API 오류: {header.get('resultCode')} / {header.get('resultMsg')}")
-            body = response["body"]
-            count = int(body["totalCount"])
-            # 응답의 items/item이 목록 또는 단일 객체인 경우를 모두 목록으로 통일합니다.
-            container = body.get("items") or {}
-            if isinstance(container, dict):
-                records = container.get("item") or []
-            elif isinstance(container, list):
-                records = container
-            else:
-                records = []
-            if isinstance(records, dict):
-                records = [records]
-            if not isinstance(records, list):
-                raise ValueError("item의 자료형이 예상과 다릅니다.")
-            return count, records
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-            raise RuntimeError("나라장터 API 응답 형식 확인 필요 (JSON 구조/인증키 확인)") from exc
+        return parse_page(fetch_bytes(API_URL, params))
 
     # UI에는 원본 API 필드 대신 화면·출력에서 사용하는 공통 컬럼으로 전달합니다.
     def notify_page(items, page, pages, total):

@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from exporter import EXCEL_COLUMNS
 from ui_helpers import format_price
 import ui_runner
 
@@ -39,5 +41,5 @@ class PresentationTests(unittest.TestCase):
             self.assertEqual(settings['highlight_keywords'], ['기존단어'])
             self.assertEqual(row['강조 근거'], '지정 키워드: 새주제')
             workbook = load_workbook(file)
-            self.assertEqual(workbook.active['F2'].fill.fgColor.rgb, 'FFFFFF00')
+            self.assertEqual(workbook.active[f"{get_column_letter(EXCEL_COLUMNS.index('공고명') + 1)}2"].fill.fgColor.rgb, 'FFFFFF00')
             workbook.close()

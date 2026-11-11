@@ -1,5 +1,5 @@
 # 파일 역할: D2B 국내 경쟁입찰 공고를 날짜 범위로 조회하고 XML 응답을 공통 컬럼으로 변환합니다.
-# 마지막 업데이트: 2026-11-02
+# 마지막 업데이트: 2026-11-11
 # 작업자: SMI 장지수
 
 """방위사업청 D2B 용역 경쟁입찰공고 수집."""
@@ -99,6 +99,8 @@ def convert(item, display_name):
         "공고위치": display_name,
         "공고번호": f"{number}-{order}" if number and order else number,
         "입찰구분": item.get("cntrctMth") or "",
+        # D2B API(목록·상세)에는 기술:가격 평가 비율이 없어 협상계약은 공고문 확인을 안내합니다.
+        "평가비율(기술:가격)": "공고문 확인" if "협상" in str(item.get("cntrctMth") or "") else "",
         "공고구분": item.get("pblancSe") or "",
         "공고일자": item.get("pblancDate") or "",
         "공고명": item.get("bidNm") or "",

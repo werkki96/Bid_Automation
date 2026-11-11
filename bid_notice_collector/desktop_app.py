@@ -1,5 +1,5 @@
 # 파일 역할: Tkinter 화면에서 조회조건을 입력하고 백그라운드 수집 결과를 표시합니다.
-# 마지막 업데이트: 2026-11-02
+# 마지막 업데이트: 2026-11-11
 # 작업자: SMI 장지수
 
 """Desktop app; package with PyInstaller on Windows."""
@@ -17,8 +17,9 @@ from urllib.parse import urlparse
 from config import KST, BASE_DIR, default_start_date
 from config import load_settings, save_ui_keywords
 from exporter import EXCEL_COLUMNS
-from ui_runner import parse_keywords, run_ui, save_ui_results
+from ui_runner import parse_keywords, run_ui, save_ui_results, search_openings
 from ui_helpers import format_price
+from collectors import nara_opening
 
 SOURCE_NAMES = {'nara': '나라장터', 'd2b': '국방전자조달'}
 
@@ -40,6 +41,7 @@ class App(tk.Tk):
         self.tables = {}
         self.selected_cells = {}
         self.keyword_editors = {}
+        self.opening_window = None
         settings = load_settings()
         self.keyword_values = {
             'highlight': list(settings.get('highlight_keywords', [])),
@@ -234,6 +236,9 @@ class App(tk.Tk):
         heading.pack(fill='x', pady=(0, 8))
         ttk.Label(heading, text=description,
                   font=(self.ui_font, 11, 'bold')).pack(side='left')
+        if source == 'nara':
+            ttk.Button(heading, text='개찰결과 조회', style='Small.TButton',
+                       command=self.open_opening_window).pack(side='left', padx=(14, 0))
         count = tk.StringVar(value='0건')
         self.count_labels[source] = count
         ttk.Label(heading, textvariable=count, foreground='#1677c8',
@@ -266,6 +271,8 @@ class App(tk.Tk):
         column_widths = {
             '공고위치': 70,
             '공고번호': 160,
+            '입찰구분': 130,
+            '평가비율(기술:가격)': 120,
             '공고구분': 75,
             '공고일자': 145,
             '공고명': 350,
@@ -292,6 +299,13 @@ class App(tk.Tk):
         hscroll.grid(row=1, column=0, sticky='ew')
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
+
+    def open_opening_window(self):
+        if self.opening_window is not None and self.opening_window.winfo_exists():
+            self.opening_window.lift()
+            self.opening_window.focus_force()
+            return
+        self.opening_window = OpeningWindow(self)
 
     def save_keywords(self):
         try:
@@ -571,6 +585,204 @@ class App(tk.Tk):
         self.status.set(f"저장 완료 · {', '.join(path.name for path in saved)}" +
                         (f" · 수집되지 않아 제외: {', '.join(skipped)}" if skipped else ''))
         self._render_results()
+
+class OpeningWindow(tk.Toplevel):
+    """나라장터 개찰결과를 개찰일과 검색어로 찾는 별도 창입니다."""
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.app = app
+        self.title('나라장터 개찰결과 조회')
+        self.geometry('1320x760')
+        self.minsize(960, 520)
+        self.configure(background='#f5f7fb')
+        self.queue = queue.Queue()
+        self.running = False
+        self.rows = []
+        self.selected_cell = None
+
+        today = datetime.now(KST).date()
+        fields = ttk.LabelFrame(self, text='  개찰결과 조회 조건  ', padding=12, style='Card.TLabelframe')
+        fields.pack(fill='x', padx=18, pady=(14, 8))
+        ttk.Label(fields, text='개찰일 · KST', style='Card.TLabel').grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 6))
+        self.start = ttk.Entry(fields, width=13)
+        self.start.insert(0, str(today - timedelta(days=6)))
+        self.start.grid(row=1, column=0, sticky='ew')
+        ttk.Label(fields, text=' — ', style='Card.TLabel').grid(row=1, column=1)
+        self.end = ttk.Entry(fields, width=13)
+        self.end.insert(0, str(today))
+        self.end.grid(row=1, column=2, sticky='ew')
+        quick = ttk.Frame(fields, style='Card.TFrame')
+        quick.grid(row=2, column=0, columnspan=3, sticky='w', pady=(8, 0))
+        for text, days in [('오늘', 1), ('최근 7일', 7), ('최근 30일', 30)]:
+            ttk.Button(quick, text=text, style='Small.TButton',
+                       command=lambda d=days: self._set_period(d)).pack(side='left', padx=(0, 4))
+        self.industry_only = tk.BooleanVar(value=True)
+        industry = load_settings()['nara'].get('industry_code', '1169')
+        ttk.Checkbutton(fields, text=f'학술·연구용역({industry})만', variable=self.industry_only,
+                        style='Card.TCheckbutton').grid(row=1, column=3, sticky='w', padx=(18, 0))
+        ttk.Label(fields, text='7일보다 긴 기간은 7일씩 나누어 조회합니다.',
+                  style='Muted.Card.TLabel').grid(row=2, column=3, sticky='w', padx=(18, 0), pady=(8, 0))
+        fields.columnconfigure(4, weight=1)
+        self.button = ttk.Button(fields, text='개찰결과 조회', command=self.start_search, style='Accent.TButton')
+        self.button.grid(row=0, column=5, rowspan=3, sticky='nsew', ipadx=14)
+
+        toolbar = ttk.Frame(self)
+        toolbar.pack(fill='x', padx=18, pady=(0, 8))
+        ttk.Label(toolbar, text='검색어').pack(side='left', padx=(0, 8))
+        self.query = tk.StringVar()
+        ttk.Entry(toolbar, textvariable=self.query, width=36).pack(side='left')
+        ttk.Label(toolbar, text='공고명·기관·1순위 업체 · 쉼표로 여러 단어(하나라도 포함)',
+                  foreground='#61738a', font=(app.ui_font, 9)).pack(side='left', padx=10)
+        self.count = tk.StringVar(value='')
+        ttk.Label(toolbar, textvariable=self.count, foreground='#1677c8',
+                  font=(app.ui_font, 10, 'bold')).pack(side='right')
+        self.query.trace_add('write', lambda *_: self._render())
+
+        status_bar = ttk.Frame(self, padding=(18, 6))
+        status_bar.pack(side='bottom', fill='x')
+        self.status = tk.StringVar(value='개찰일을 정하고 조회하세요. 상세보기 주소를 클릭하면 나라장터 공고가 열립니다.')
+        ttk.Label(status_bar, textvariable=self.status, foreground='#52637a').pack(side='left')
+        self.progress = ttk.Progressbar(status_bar, mode='indeterminate', length=140)
+        self.progress.pack(side='right')
+
+        frame = ttk.Frame(self)
+        frame.pack(fill='both', expand=True, padx=18, pady=(0, 4))
+        columns = nara_opening.COLUMNS
+        self.table = ttk.Treeview(frame, columns=columns, show='headings')
+        widths = {'공고번호': 150, '공고명': 380, '공고기관': 170, '수요기관': 170, '개찰일시': 130,
+                  '진행상태': 75, '비고': 200, '참가업체수': 75, '1순위 업체': 180,
+                  '투찰금액(원)': 110, '투찰률(%)': 75, '상세보기 주소': 260}
+        for column in columns:
+            self.table.heading(column, text=column)
+            anchor = 'e' if column in ('참가업체수', '투찰금액(원)', '투찰률(%)') else 'w'
+            self.table.column(column, width=widths.get(column, 120), stretch=False, anchor=anchor)
+        self.table.tag_configure('even', background='#f7f9fc')
+        self.table.tag_configure('odd', background='white')
+        # 유찰 공고는 회색 글자로 구분합니다.
+        self.table.tag_configure('failed', foreground='#8a94a3')
+        hscroll = ttk.Scrollbar(frame, orient='horizontal', command=self.table.xview)
+        vscroll = ttk.Scrollbar(frame, orient='vertical', command=self.table.yview)
+        self.table.configure(xscrollcommand=hscroll.set, yscrollcommand=vscroll.set)
+        self.table.grid(row=0, column=0, sticky='nsew')
+        vscroll.grid(row=0, column=1, sticky='ns')
+        hscroll.grid(row=1, column=0, sticky='ew')
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+        self.table.bind('<Button-1>', self._handle_click)
+        self.table.bind('<Control-c>', self._copy_cell)
+        self.start.bind('<Return>', lambda _event: self.start_search())
+        self.end.bind('<Return>', lambda _event: self.start_search())
+        self.after(150, self._poll)
+
+    def _set_period(self, days):
+        today = datetime.now(KST).date()
+        for entry, value in [(self.start, today - timedelta(days=days - 1)), (self.end, today)]:
+            entry.delete(0, 'end')
+            entry.insert(0, str(value))
+
+    def start_search(self):
+        if self.running:
+            return
+        try:
+            first = datetime.strptime(self.start.get().strip(), '%Y-%m-%d').date()
+            last = datetime.strptime(self.end.get().strip(), '%Y-%m-%d').date()
+            if first > last:
+                raise ValueError('시작일은 종료일보다 늦을 수 없습니다.')
+        except ValueError as exc:
+            messagebox.showerror('날짜 오류', str(exc), parent=self)
+            return
+        self.rows = []
+        self._render()
+        self.running = True
+        self.button.config(state='disabled', text='조회 중…')
+        self.progress.start(12)
+        self.status.set('개찰결과 조회 중...')
+        industry_only = self.industry_only.get()
+        events = self.queue
+
+        def worker():
+            # 작업 스레드는 화면을 직접 건드리지 않고 큐로만 결과를 전달합니다.
+            try:
+                search_openings(first, last, industry_only,
+                                on_page=lambda rows, done, total: events.put(('page', rows, done, total)))
+                events.put(('done', None, None, None))
+            except Exception as exc:
+                events.put(('error', str(exc), None, None))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _poll(self):
+        if not self.winfo_exists():
+            return
+        changed = False
+        for _ in range(200):
+            try:
+                kind, payload, done, total = self.queue.get_nowait()
+            except queue.Empty:
+                break
+            if kind == 'page':
+                self.rows.extend(payload)
+                changed = True
+                self.status.set(f'조회 중 · {done}/{total}구간 · {len(self.rows):,}건')
+            else:
+                self.running = False
+                self.progress.stop()
+                self.button.config(state='normal', text='다시 조회')
+                changed = True
+                if kind == 'error':
+                    self.status.set('오류: ' + payload)
+                    messagebox.showerror('개찰결과 조회 오류', payload, parent=self)
+                else:
+                    self.status.set(f'조회 완료 · {len(self.rows):,}건 · '
+                                    '상세보기 주소 클릭: 공고 열기 · 셀 클릭 후 Ctrl+C: 복사')
+        if changed:
+            self._render()
+        self.after(150, self._poll)
+
+    def _render(self):
+        self.selected_cell = None
+        self.table.delete(*self.table.get_children())
+        query = self.query.get()
+        rows = sorted((row for row in self.rows if nara_opening.matches(row, query)),
+                      key=lambda row: row['개찰일시'], reverse=True)
+        for index, row in enumerate(rows):
+            tags = ['even' if index % 2 == 0 else 'odd']
+            if row.get('진행상태') == '유찰':
+                tags.append('failed')
+            self.table.insert('', 'end', values=[row.get(c, '') for c in nara_opening.COLUMNS], tags=tags)
+        self.count.set(f'{len(rows):,} / {len(self.rows):,}건' if self.rows else '')
+
+    def _handle_click(self, event):
+        if self.table.identify_region(event.x, event.y) != 'cell':
+            return
+        row_id = self.table.identify_row(event.y)
+        column_id = self.table.identify_column(event.x)
+        if not row_id or not column_id.startswith('#'):
+            return
+        index = int(column_id[1:]) - 1
+        self.selected_cell = (row_id, index)
+        if nara_opening.COLUMNS[index] != '상세보기 주소':
+            return
+        url = str(self.table.item(row_id, 'values')[index]).strip()
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+            messagebox.showerror('주소 오류', '유효한 상세보기 주소가 없습니다.', parent=self)
+            return
+        if messagebox.askyesno('상세보기 이동', f'다음 주소로 이동하시겠습니까?\n\n{url}', parent=self):
+            if not webbrowser.open_new_tab(url):
+                messagebox.showerror('브라우저 오류', '상세보기 주소를 열 수 없습니다.', parent=self)
+
+    def _copy_cell(self, _event):
+        if self.selected_cell is None:
+            return 'break'
+        row_id, index = self.selected_cell
+        values = self.table.item(row_id, 'values')
+        if index < len(values):
+            self.clipboard_clear()
+            self.clipboard_append(str(values[index]))
+        return 'break'
+
 
 if __name__=='__main__':
     App().mainloop()

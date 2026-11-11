@@ -23,6 +23,12 @@ from exporter import (
     save_excel,
 )
 from highlighter import highlight_reasons
+
+from openpyxl.utils import get_column_letter
+# 컬럼이 추가돼도 같은 열을 검사하도록 위치를 이름으로 계산합니다.
+TITLE_COL = get_column_letter(EXCEL_COLUMNS.index("공고명") + 1)
+REASON_COL = get_column_letter(EXCEL_COLUMNS.index("강조 근거") + 1)
+LAST_COL = get_column_letter(len(EXCEL_COLUMNS))
 from main import run
 
 # 개별 테스트의 기본 설정입니다. 운영 settings.json의 제외 목록이 테스트에 섞이지 않도록 분리합니다.
@@ -268,8 +274,8 @@ class CollectorTests(unittest.TestCase):
             sheet = workbook.active
             self.assertEqual([cell.value for cell in sheet[1]], EXCEL_COLUMNS)
             self.assertEqual(sheet.max_row, len(rows) + 1)
-            self.assertEqual(sheet["F2"].value, expected_titles[0])
-            self.assertEqual(sheet["F2"].fill.fgColor.rgb, "FFFFFF00")
+            self.assertEqual(sheet[f"{TITLE_COL}2"].value, expected_titles[0])
+            self.assertEqual(sheet[f"{TITLE_COL}2"].fill.fgColor.rgb, "FFFFFF00")
             for cell in sheet[1]:
                 self.assertEqual(cell.fill.fgColor.rgb, "FFD9D9D9")
                 self.assertEqual(cell.border.left.style, "thin")
@@ -280,20 +286,20 @@ class CollectorTests(unittest.TestCase):
                     self.assertEqual(cell.border.top.style, "thin")
                     self.assertEqual(cell.border.bottom.style, "thin")
             for index, title in enumerate(expected_titles, 2):
-                cell = sheet.cell(index, 6)
+                cell = sheet.cell(index, EXCEL_COLUMNS.index("공고명") + 1)
                 self.assertEqual(cell.value or "", title)
                 if highlight_reasons(title, keywords):
                     self.assertEqual(cell.fill.fgColor.rgb, "FFFFFF00")
                     self.assertEqual(cell.fill.patternType, "solid")
                 else:
                     self.assertIsNone(cell.fill.patternType)
-                self.assertIsNone(sheet.cell(index, 7).fill.patternType)
-            formula_text_cell = next(cell for cell in sheet["F"] if cell.value == "=AI()")
+                self.assertIsNone(sheet.cell(index, EXCEL_COLUMNS.index("공고명") + 2).fill.patternType)
+            formula_text_cell = next(cell for cell in sheet[TITLE_COL] if cell.value == "=AI()")
             self.assertEqual(formula_text_cell.data_type, "s")
             workbook.close()
             save_excel(path, [{"공고명": "AI"}], [" "])
             workbook = load_workbook(path)
-            self.assertIsNone(workbook.active["F2"].fill.patternType)
+            self.assertIsNone(workbook.active[f"{TITLE_COL}2"].fill.patternType)
             workbook.close()
             save_excel(path, [], keywords)
             workbook = load_workbook(path)
@@ -320,6 +326,17 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(highlight_reasons(None, rules=rules), [])
         self.assertEqual(highlight_reasons("AI 연구", [], {}), [])
         self.assertEqual(highlight_reasons("A I", ["AI", "ai", " "]), ["지정 키워드: AI"])
+        # 영문·숫자 키워드는 공고번호 등 다른 영문·숫자 안에 붙어 있으면 맞지 않습니다.
+        for title in ("(26G193-A) 27년 의료기관세탁물 위탁처리용역", "6GHz 대역", "MAIN 시스템"):
+            with self.subTest(title=title):
+                self.assertEqual(highlight_reasons(title, ["6G", "AI"]), [])
+        for title in ("5G 6G 특화망", "6G특화망", "AI기반 플랫폼", "(AI) 사업"):
+            with self.subTest(title=title):
+                self.assertTrue(highlight_reasons(title, ["6G", "AI"]))
+        self.assertEqual(highlight_reasons(
+            "(26G193-A) 27년 의료기관세탁물 위탁처리용역",
+            load_settings()["highlight_keywords"], rules, "국군의무사령부",
+        ), [])
         reasons = highlight_reasons("국방 연구", rules=rules)
         self.assertTrue(any("관심 분야" in reason for reason in reasons))
         self.assertTrue(any("과업 성격" in reason for reason in reasons))
@@ -409,7 +426,7 @@ class CollectorTests(unittest.TestCase):
             for path in (nara_file, d2b_file):
                 workbook = load_workbook(path)
                 self.assertEqual(workbook.active.max_row, 2)
-                self.assertIsNone(workbook.active["F2"].fill.patternType)
+                self.assertIsNone(workbook.active[f"{TITLE_COL}2"].fill.patternType)
                 self.assertEqual(workbook.active["A1"].fill.fgColor.rgb, "FFD9D9D9")
                 self.assertEqual(workbook.active["A2"].border.left.style, "thin")
                 self.assertEqual(workbook.active["A2"].border.left.color.rgb, "FF000000")
