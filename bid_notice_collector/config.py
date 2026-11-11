@@ -98,6 +98,12 @@ def load_settings(path=None):
         for x in keywords
     ):
         raise ValueError("exclude_keywords에는 문자열 또는 AND 조건 문자열 목록을 입력하세요.")
+    for entry in keywords:
+        terms = [entry] if isinstance(entry, str) else entry
+        # '!'로 시작하는 예외 조건만으로는 제외 대상을 정할 수 없습니다.
+        filled = [term.strip() for term in terms if term.strip()]
+        if filled and all(term.startswith("!") for term in filled):
+            raise ValueError(f"exclude_keywords의 '{entry}'에는 '!'가 없는 조건이 하나 이상 있어야 합니다.")
     if not isinstance(search_fields, list) or any(x not in COLUMNS for x in search_fields):
         raise ValueError("keyword_search_columns에 올바른 출력 컬럼명을 입력하세요.")
     date_settings = data.get("date_range", {})

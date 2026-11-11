@@ -2,7 +2,7 @@
 # 마지막 업데이트: 2026-11-11
 # 작업자: SMI 장지수
 
-"""Run `python highlight_feedback.py` to list recorded cases that the current settings get wrong."""
+"""Run `python highlight_feedback.py [--reference 과제목록.xlsx]` to list cases the current settings get wrong."""
 import json
 import sys
 
@@ -41,13 +41,48 @@ def failures(settings=None, cases=None):
     return wrong
 
 
-def main():
+def load_reference(path):
+    """Read (사업명, 발주처) pairs from a reference project-list Excel; duplicates removed."""
+    from openpyxl import load_workbook
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    projects, seen = [], set()
+    for sheet in workbook.worksheets:
+        header = None
+        for row in sheet.iter_rows(values_only=True):
+            # 시트마다 제목 줄이 있으므로 '번호'로 시작하는 줄을 머리글로 씁니다.
+            if row and row[0] == "번호":
+                header = list(row)
+                continue
+            if header and "사업명" in header and row[header.index("사업명")]:
+                title = str(row[header.index("사업명")]).strip()
+                issuer = str(row[header.index("발주처")] or "").strip() if "발주처" in header else ""
+                if title not in seen:
+                    seen.add(title)
+                    projects.append((title, issuer))
+    return projects
+
+
+def reference_report(path, settings=None):
+    """Print how many reference projects the current rules would highlight, and list the misses."""
+    settings = settings or load_settings()
+    projects = load_reference(path)
+    missed = [(t, i) for t, i in projects if not highlight_result(t, i, settings)]
+    for title, issuer in missed:
+        print(f"[미강조 과제] {issuer} | {title}")
+    print(f"기준 과제 {len(projects)}건 중 {len(projects) - len(missed)}건 강조, {len(missed)}건 미강조")
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
     cases = load_cases()
     wrong = failures(cases=cases)
     for case, reasons in wrong:
         actual = "강조(" + "; ".join(reasons) + ")" if reasons else "강조 안 됨"
         print(f"[불일치] {case['title']}\n  기록: {case['expected']} / 현재: {actual}")
     print(f"판정 기록 {len(cases)}건 중 {len(cases) - len(wrong)}건 일치, {len(wrong)}건 불일치")
+    # 예: python highlight_feedback.py --reference 과제목록.xlsx
+    if "--reference" in argv and argv.index("--reference") + 1 < len(argv):
+        reference_report(argv[argv.index("--reference") + 1])
     return 1 if wrong else 0
 
 

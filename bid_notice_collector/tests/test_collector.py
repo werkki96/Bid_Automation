@@ -253,6 +253,17 @@ class CollectorTests(unittest.TestCase):
             [["학생|학교|교육", "연수"]],
             ["공고명"],
         ))
+        # '!' 조건: 해당 표현이 하나라도 있으면 그 제외 항목은 적용하지 않습니다.
+        rule = [["정비", "!연구|분석"]]
+        self.assertTrue(matches_exclusion({"공고명": "함정 외주 정비 용역"}, rule, ["공고명"]))
+        self.assertFalse(matches_exclusion({"공고명": "창정비 방안 연구"}, rule, ["공고명"]))
+        self.assertFalse(matches_exclusion({"공고명": "정비 비용분석"}, rule, ["공고명"]))
+        self.assertFalse(matches_exclusion({"공고명": "아무 공고"}, [["!연구"]], ["공고명"]))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "settings.json"
+            path.write_text(json.dumps({**SETTINGS, "exclude_keywords": [["!연구"]]}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "exclude_keywords"):
+                load_settings(path)
 
     def test_excel_highlights_titles_and_preserves_text(self):
         keywords = load_settings()["highlight_keywords"]
@@ -369,7 +380,9 @@ class CollectorTests(unittest.TestCase):
             ("국방보안체계 정립을 위한 법령정비 방안 연구", "국방부"): True,
             ("지역 뿌리기업 AI 활용 역량 강화 교육과정 개발 및 운영 용역", "한국산업기술진흥원"): False,
             ("강화군 제2국민체육센터 건립 타당성 조사 용역", "인천광역시 강화군"): False,
-            ("국방 장비 정비 연구", "국방부"): False,
+            # 정비 자체를 하는 용역은 제외하고, 정비를 연구·분석하는 용역은 강조합니다.
+            ("'26-2차 수상함 외주 상가정비 용역", "해군군수사령부"): False,
+            ("무장체계 창정비 방안 연구", "해군본부"): True,
         }
         rows = mark_highlight_suppressed(
             [{"공고명": title, "공고기관(발주기관)": issuer} for title, issuer in cases],

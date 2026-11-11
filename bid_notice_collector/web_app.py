@@ -85,7 +85,8 @@ def edit_exclude_keywords():
     value = st.text_area('한 줄에 한 조건 · 모두 일치: + · 하나라도 일치: |',
                          value=_exclude_editor_text(st.session_state.web_exclude_keywords),
                          height=300, key='exclude_editor')
-    st.caption('예: 학생|학교|교육 + 연수 → 학생·학교·교육 중 하나와 연수가 함께 포함된 경우')
+    st.caption('예: 학생|학교|교육 + 연수 → 학생·학교·교육 중 하나와 연수가 함께 포함된 경우 · '
+               '정비 + !연구|분석 → 정비가 있어도 연구·분석이 함께 있으면 강조 유지')
     if st.button('변경 적용', type='primary', key='apply_exclude_editor'):
         edited = []
         for line in value.splitlines():

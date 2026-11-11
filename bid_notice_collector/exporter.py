@@ -212,18 +212,28 @@ def mark_highlight_suppressed(records, keywords, search_columns, exceptions=None
 
 
 def matches_exclusion(record, keywords, search_columns):
+    """'+'로 묶인 그룹은 모두 맞아야 하고, '!'로 시작하는 그룹은 하나도 없어야 합니다.
+
+    예: ["정비", "!연구|분석"]은 '정비'가 있고 '연구'·'분석'이 모두 없을 때만 강조를 억제합니다.
+    """
     haystacks = [str(record.get(name, "") or "").casefold() for name in search_columns]
+
+    def present(group):
+        return any(alternative in text for alternative in group for text in haystacks)
+
     for entry in keywords:
         terms = [entry] if isinstance(entry, str) else entry
-        groups = [
-            [alternative.strip().casefold() for alternative in term.split("|") if alternative.strip()]
-            for term in terms
-            if isinstance(term, str) and term.strip()
-        ]
-        if groups and all(
-            any(alternative in text for alternative in group for text in haystacks)
-            for group in groups
-        ):
+        required, forbidden = [], []
+        for term in terms:
+            if not isinstance(term, str) or not term.strip():
+                continue
+            term = term.strip()
+            target = forbidden if term.startswith("!") else required
+            group = [a.strip().casefold() for a in term.lstrip("!").split("|") if a.strip()]
+            if group:
+                target.append(group)
+        # 부정 조건만 있는 항목은 거의 모든 공고에 맞으므로 적용하지 않습니다.
+        if required and all(present(g) for g in required) and not any(present(g) for g in forbidden):
             return True
     return False
 
