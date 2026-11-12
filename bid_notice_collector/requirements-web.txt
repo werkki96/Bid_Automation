@@ -1,1 +1,14 @@
+# 파일 역할: 웹 UI용 Streamlit과 공통 실행 의존성을 지정합니다.
+# 마지막 업데이트: 2026-10-26
+# 작업자: SMI 장지수
+
 streamlit>=1.37,<2
+
+# 웹 UI 표와 검색 결과 데이터 처리에 사용합니다.
+pandas>=2,<3
+
+# 공통 exporter가 사용하는 openpyxl도 설치합니다.
+-r requirements.txt
+
+# Streamlit 표에서 공고명 셀의 노란색 서식을 표시하는 pandas Styler 의존성입니다.
+jinja2>=3.1,<4

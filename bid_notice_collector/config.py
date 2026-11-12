@@ -1,17 +1,30 @@
+# 파일 역할: 공통 출력 컬럼, 인증키 로딩, 설정 검증과 한국시간(KST) 기준 조회기간 계산을 담당합니다.
+# 마지막 업데이트: 2026-11-03
+# 작업자: SMI 장지수
+
 """Configuration and date handling. Standard library only."""
 
 from datetime import datetime, timedelta, timezone
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import unquote
 
-BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+# 일반 실행은 소스 파일 옆, PyInstaller EXE는 실행 파일 옆의 설정·인증키를 사용합니다.
+# 포터블 배포는 실행 .bat이 BID_NOTICE_HOME으로 배포 폴더 최상위를 지정합니다.
+if os.environ.get("BID_NOTICE_HOME"):
+    BASE_DIR = Path(os.environ["BID_NOTICE_HOME"]).resolve()
+elif getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent
 KST = timezone(timedelta(hours=9))
 
+# 두 API가 공유하는 원본 출력 순서입니다. Excel에서는 exporter가 강조 근거 열을 덧붙입니다.
 COLUMNS = [
-    "공고위치", "공고번호", "입찰구분", "공고구분", "공고일자", "공고명",
+    "공고위치", "공고번호", "입찰구분", "평가비율(기술:가격)", "공고구분", "공고일자", "공고명",
     "공고기관(발주기관)", "수요기관", "추정가격(원)",
     "입찰참가등록 마감일시", "상세보기 주소",
 ]
@@ -45,6 +58,7 @@ def api_keys(env=None):
     env = read_env() if env is None else env
 
     def choose(name):
+        # 우선순위: 서비스별 환경변수 → 서비스별 .env → 공통 환경변수 → 공통 .env.
         value = os.environ.get(name) or env.get(name) or os.environ.get("API_KEY") or env.get("API_KEY", "")
         return unquote(value.strip())
 
@@ -57,12 +71,39 @@ def load_settings(path=None):
     if not isinstance(data, dict):
         raise ValueError("settings.json의 최상위 구조는 객체여야 합니다.")
     includes = data.get("include_keywords", [])
+    highlights = data.get("highlight_keywords", [])
+    rules = data.get("highlight_rules", {})
+    if not isinstance(rules, dict) or any(
+        not isinstance(label, str) or not label.strip()
+        or not isinstance(terms, list) or any(not isinstance(term, str) for term in terms)
+        for label, terms in rules.items()
+    ):
+        raise ValueError("highlight_rules에는 분류명과 문자열 목록으로 구성된 객체를 입력해야 합니다.")
+    if not isinstance(highlights, list) or any(not isinstance(x, str) for x in highlights):
+        raise ValueError("highlight_keywords에는 문자열 목록을 입력해야 합니다.")
     if not isinstance(includes, list) or any(not isinstance(x, str) for x in includes):
         raise ValueError("include_keywords에는 문자열 목록을 입력해야 합니다.")
+    exceptions = data.get("exclude_exceptions", [])
+    if not isinstance(exceptions, list) or any(not isinstance(x, str) for x in exceptions):
+        raise ValueError("exclude_exceptions에는 문자열 목록을 입력해야 합니다.")
     keywords = data.get("exclude_keywords", [])
     search_fields = data.get("keyword_search_columns", ["공고명"])
-    if not isinstance(keywords, list) or any(not isinstance(x, str) for x in keywords):
-        raise ValueError("exclude_keywords에는 문자열 목록을 입력해야 합니다.")
+    if not isinstance(keywords, list) or any(
+        not isinstance(x, str)
+        and not (
+            isinstance(x, list)
+            and x
+            and all(isinstance(term, str) and term.strip() for term in x)
+        )
+        for x in keywords
+    ):
+        raise ValueError("exclude_keywords에는 문자열 또는 AND 조건 문자열 목록을 입력하세요.")
+    for entry in keywords:
+        terms = [entry] if isinstance(entry, str) else entry
+        # '!'로 시작하는 예외 조건만으로는 제외 대상을 정할 수 없습니다.
+        filled = [term.strip() for term in terms if term.strip()]
+        if filled and all(term.startswith("!") for term in filled):
+            raise ValueError(f"exclude_keywords의 '{entry}'에는 '!'가 없는 조건이 하나 이상 있어야 합니다.")
     if not isinstance(search_fields, list) or any(x not in COLUMNS for x in search_fields):
         raise ValueError("keyword_search_columns에 올바른 출력 컬럼명을 입력하세요.")
     date_settings = data.get("date_range", {})
@@ -72,7 +113,7 @@ def load_settings(path=None):
         value = date_settings.get(field)
         if value is not None and not isinstance(value, str):
             raise ValueError(f"date_range.{field}에는 YYYY-MM-DD 문자열 또는 null을 입력하세요.")
-    # Both explicit dates must be set; otherwise the default is yesterday ~ today.
+    # Both explicit dates must be set; otherwise the default is yesterday (Friday on Mondays) ~ today.
     resolve_date_range(data)
     page_size = data.get("page_size", 100)
     if not isinstance(page_size, int) or isinstance(page_size, bool) or not 1 <= page_size <= 999:
@@ -86,6 +127,26 @@ def load_settings(path=None):
     return data
 
 
+def save_ui_keywords(include_keywords, exclude_keywords, highlight_keywords, path=None):
+    """Persist keyword values entered by the web or desktop UI."""
+    target = Path(path) if path is not None else BASE_DIR / "settings.json"
+    data = json.loads(target.read_text(encoding="utf-8"))
+    data["include_keywords"] = list(include_keywords)
+    data["exclude_keywords"] = list(exclude_keywords)
+    data["highlight_keywords"] = list(highlight_keywords)
+    fd, temporary = tempfile.mkstemp(prefix=".settings_", suffix=".json", dir=target.parent)
+    os.close(fd)
+    try:
+        Path(temporary).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, target)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def _parse_date(value, label):
     try:
         return datetime.strptime(value, "%Y-%m-%d").date()
@@ -93,11 +154,20 @@ def _parse_date(value, label):
         raise ValueError(f"{label}은 YYYY-MM-DD 형식의 실제 날짜여야 합니다: {value!r}") from exc
 
 
+def default_start_date(today):
+    """Previous business day: Friday on Mondays, otherwise yesterday."""
+    # 월요일에는 주말 사이 등록된 공고까지 보도록 지난 금요일부터 조회합니다.
+    return today - timedelta(days=3 if today.weekday() == 0 else 1)
+
+
 def resolve_date_range(settings, explicit_start=None, explicit_end=None, now=None):
     """Return inclusive (start, end) dates. Defaults to yesterday ~ today in KST.
 
+    On Mondays the default starts from the previous Friday.
+
     Settings may specify both dates (or neither); a CLI override must give both.
     """
+    # 조회기간 우선순위: CLI 날짜 → settings 날짜 → KST 어제~오늘(월요일은 금~월, 양끝 포함).
     if explicit_start is not None or explicit_end is not None:
         if not explicit_start or not explicit_end:
             raise ValueError("직접 날짜를 지정할 때는 시작일과 종료일을 모두 입력하세요.")
@@ -110,7 +180,7 @@ def resolve_date_range(settings, explicit_start=None, explicit_end=None, now=Non
         if first is None and last is None:
             current = now if now is not None else datetime.now(KST)
             today = current.astimezone(KST).date()
-            return today - timedelta(days=1), today
+            return default_start_date(today), today
         if not first or not last:
             raise ValueError("date_range.start_date와 end_date를 모두 설정하거나 모두 null로 두세요.")
     first_day = _parse_date(first, "시작일")

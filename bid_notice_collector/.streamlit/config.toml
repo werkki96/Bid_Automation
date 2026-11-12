@@ -1,0 +1,11 @@
+# 파일 역할: 웹 UI의 색상과 기본 글꼴 테마를 설정합니다.
+# 마지막 업데이트: 2026-10-27
+# 작업자: SMI 장지수
+
+[theme]
+base = "light"
+primaryColor = "#2260a4"
+backgroundColor = "#f5f7fb"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#172b4d"
+font = "sans serif"
